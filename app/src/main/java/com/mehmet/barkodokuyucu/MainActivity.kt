@@ -126,13 +126,27 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(Color.rgb(245, 246, 248))
         }
 
-        root.addView(TextView(this).apply {
-            text = "Barkod Okuyucu"
-            textSize = 22f
-            setTextColor(Color.WHITE)
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
             setBackgroundColor(Color.rgb(17, 24, 39))
-            setPadding(dp(16), dp(14), dp(16), dp(14))
+            setPadding(dp(16), dp(9), dp(16), dp(10))
+        }
+        header.addView(TextView(this).apply {
+            text = "EMIRA HOME  •  İPEKTAÇ"
+            textSize = 16f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            letterSpacing = 0.08f
         })
+        header.addView(TextView(this).apply {
+            text = "Barkod Okuma Cihazı"
+            textSize = 22f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setPadding(0, dp(2), 0, 0)
+        })
+        root.addView(header)
 
         val modePanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -267,7 +281,7 @@ class MainActivity : ComponentActivity() {
 
         val buttons = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(8), dp(8), dp(8), dp(10))
+            setPadding(dp(8), dp(6), dp(8), dp(30))
             setBackgroundColor(Color.WHITE)
         }
         torch = Button(this).apply {
