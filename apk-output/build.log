@@ -37,20 +37,22 @@ Unable to strip the following libraries, packaging them as they are: libbarhoppe
 > Task :app:writeDebugSigningConfigVersions
 > Task :app:mergeExtDexDebug
 
-> Task :app:compileDebugKotlin
-w: file:///home/runner/work/hangikizsin/hangikizsin/app/src/main/java/com/mehmet/barkodokuyucu/MainActivity.kt:311:12 Annotation 'androidx.camera.core.ExperimentalGetImage' is not annotated with '@RequiresOptIn'. '@OptIn' has no effect.
-w: file:///home/runner/work/hangikizsin/hangikizsin/app/src/main/java/com/mehmet/barkodokuyucu/MainActivity.kt:381:45 'static field VIBRATOR_SERVICE: String' is deprecated. Deprecated in Java.
+> Task :app:compileDebugKotlin FAILED
+e: file:///home/runner/work/hangikizsin/hangikizsin/app/src/main/java/com/mehmet/barkodokuyucu/MainActivity.kt:198:13 Unresolved reference 'selectAllOnFocus'.
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/build-1787248669332.json
 
-> Task :app:compileDebugJavaWithJavac NO-SOURCE
-> Task :app:dexBuilderDebug
-> Task :app:mergeDebugGlobalSynthetics
-> Task :app:processDebugJavaRes
-> Task :app:mergeProjectDexDebug
-> Task :app:mergeDebugJavaResource
-> Task :app:packageDebug
-> Task :app:createDebugApkListingFileRedirect
-> Task :app:assembleDebug
-gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/build-1787232489765.json
+FAILURE: Build failed with an exception.
 
-BUILD SUCCESSFUL in 32s
-35 actionable tasks: 35 executed
+* What went wrong:
+Execution failed for task ':app:compileDebugKotlin'.
+> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 25s
+28 actionable tasks: 28 executed
