@@ -436,14 +436,14 @@ class MainActivity : ComponentActivity() {
     private fun showEntryActions(item: BarcodeEntry) {
         AlertDialog.Builder(this)
             .setTitle(item.value)
-            .setMessage("${item.format} • Mevcut adet: ${item.count}")
-            .setItems(arrayOf("Adedi Düzenle", "Barkodu Sil")) { _, which ->
-                when (which) {
-                    0 -> editEntryCount(item)
-                    1 -> confirmDeleteEntry(item)
-                }
+            .setMessage("${item.format} • Mevcut adet: ${item.count}\n\nNe yapmak istiyorsunuz?")
+            .setPositiveButton("ADEDİ DÜZENLE") { _, _ ->
+                editEntryCount(item)
             }
-            .setNegativeButton("Vazgeç", null)
+            .setNeutralButton("BARKODU SİL") { _, _ ->
+                confirmDeleteEntry(item)
+            }
+            .setNegativeButton("VAZGEÇ", null)
             .show()
     }
 
