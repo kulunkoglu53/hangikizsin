@@ -59,7 +59,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add apk-output
-          git commit -m "BarkodOkuyucu build result" || exit 0
+          git commit -m "BarkodOkuyucu build result v4" || exit 0
           git push origin HEAD:barkod-okuyucu-apk
       - name: Fail workflow if build failed
         if: steps.build.outputs.exit_code != '0'
