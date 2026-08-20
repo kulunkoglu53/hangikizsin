@@ -15,23 +15,23 @@ Daemon will be stopped at the end of the build
 > Task :app:parseDebugLocalResources
 > Task :app:processDebugMainManifest
 > Task :app:processDebugManifest
-> Task :app:processDebugManifestForPackage
 > Task :app:javaPreCompileDebug
 > Task :app:mergeDebugShaders
 > Task :app:compileDebugShaders NO-SOURCE
 > Task :app:generateDebugAssets UP-TO-DATE
 > Task :app:mergeDebugAssets
 > Task :app:compressDebugAssets
-> Task :app:processDebugResources
 > Task :app:desugarDebugFileDependencies
 > Task :app:mergeDebugJniLibFolders
 > Task :app:checkDebugDuplicateClasses
 > Task :app:mergeDebugNativeLibs
+> Task :app:processDebugManifestForPackage
 > Task :app:mergeLibDexDebug
 
 > Task :app:stripDebugDebugSymbols
 Unable to strip the following libraries, packaging them as they are: libbarhopper_v3.so, libimage_processing_util_jni.so, libsurface_util_jni.so.
 
+> Task :app:processDebugResources
 > Task :app:validateSigningDebug
 > Task :app:writeDebugAppMetadata
 > Task :app:writeDebugSigningConfigVersions
@@ -39,7 +39,7 @@ Unable to strip the following libraries, packaging them as they are: libbarhoppe
 
 > Task :app:compileDebugKotlin FAILED
 e: file:///home/runner/work/hangikizsin/hangikizsin/app/src/main/java/com/mehmet/barkodokuyucu/MainActivity.kt:198:13 Unresolved reference 'selectAllOnFocus'.
-gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/build-1787248669332.json
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/build-1787248885876.json
 
 FAILURE: Build failed with an exception.
 
@@ -54,5 +54,5 @@ Execution failed for task ':app:compileDebugKotlin'.
 > Run with --scan to get full insights.
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 25s
+BUILD FAILED in 29s
 28 actionable tasks: 28 executed
