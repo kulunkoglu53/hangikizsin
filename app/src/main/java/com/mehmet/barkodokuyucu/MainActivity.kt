@@ -10,7 +10,9 @@ import android.media.ToneGenerator
 import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.text.InputType
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.ViewGroup
 import android.widget.*
 import androidx.activity.ComponentActivity
@@ -42,6 +44,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var export: Button
     private lateinit var torch: Button
     private lateinit var scanButton: Button
+    private lateinit var quantityInput: EditText
     private lateinit var linearRadio: RadioButton
     private lateinit var qrRadio: RadioButton
     private lateinit var scanner: BarcodeScanner
@@ -50,10 +53,12 @@ class MainActivity : ComponentActivity() {
     private var camera: Camera? = null
     private var torchOn = false
     private var scanningActive = false
+    private var scanConsumed = false
+    private var successfulScan = false
     private var currentMode = ScanMode.LINEAR
+    private var pendingQuantity = 1
 
     private val entries = LinkedHashMap<String, BarcodeEntry>()
-    private val active = mutableMapOf<String, Long>()
     private val rows = mutableListOf<String>()
     private lateinit var adapter: ArrayAdapter<String>
     private val prefs by lazy { getSharedPreferences("barcode_store", Context.MODE_PRIVATE) }
@@ -103,6 +108,7 @@ class MainActivity : ComponentActivity() {
         buildUi()
         restore()
         refresh()
+
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             startCamera()
         } else {
@@ -126,7 +132,7 @@ class MainActivity : ComponentActivity() {
 
         val modePanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(10), dp(8), dp(10), dp(4))
+            setPadding(dp(10), dp(8), dp(10), dp(6))
             setBackgroundColor(Color.WHITE)
         }
         modePanel.addView(TextView(this).apply {
@@ -134,16 +140,13 @@ class MainActivity : ComponentActivity() {
             textSize = 14f
             setTextColor(Color.rgb(55, 65, 81))
         })
-        val modeGroup = RadioGroup(this).apply {
-            orientation = RadioGroup.HORIZONTAL
-        }
+
+        val modeGroup = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
         linearRadio = RadioButton(this).apply {
             text = "EAN / Düz Barkod"
             isChecked = true
         }
-        qrRadio = RadioButton(this).apply {
-            text = "QR"
-        }
+        qrRadio = RadioButton(this).apply { text = "QR" }
         modeGroup.addView(linearRadio, RadioGroup.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         modeGroup.addView(qrRadio, RadioGroup.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         modePanel.addView(modeGroup)
@@ -154,7 +157,7 @@ class MainActivity : ComponentActivity() {
             setPadding(dp(10), dp(6), dp(10), dp(6))
         }
         unique = metric("Benzersiz: 0")
-        total = metric("Okunan Adet: 0")
+        total = metric("Toplam Adet: 0")
         stats.addView(unique, LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(5) })
         stats.addView(total, LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginStart = dp(5) })
         root.addView(stats)
@@ -172,14 +175,56 @@ class MainActivity : ComponentActivity() {
         }
         root.addView(status)
 
-        scanButton = Button(this).apply {
-            text = "Okutmayı Başlat"
-            setOnClickListener { toggleScanning() }
+        val scanControls = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), dp(4), dp(8), dp(4))
         }
-        root.addView(scanButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply {
-            marginStart = dp(8)
-            marginEnd = dp(8)
-            bottomMargin = dp(6)
+
+        val qtyBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, dp(6), 0)
+        }
+        qtyBox.addView(TextView(this).apply {
+            text = "Adet"
+            textSize = 12f
+            setTextColor(Color.rgb(75, 85, 99))
+        })
+        quantityInput = EditText(this).apply {
+            setText("1")
+            inputType = InputType.TYPE_CLASS_NUMBER
+            gravity = Gravity.CENTER
+            textSize = 18f
+            selectAllOnFocus = true
+        }
+        qtyBox.addView(quantityInput, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
+        scanControls.addView(qtyBox, LinearLayout.LayoutParams(dp(92), ViewGroup.LayoutParams.WRAP_CONTENT))
+
+        scanButton = Button(this).apply {
+            text = "Barkodu Oku — Basılı Tut"
+            setOnTouchListener { _, event ->
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        beginSingleScan()
+                        true
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        endSingleScan()
+                        performClick()
+                        true
+                    }
+                    else -> true
+                }
+            }
+        }
+        scanControls.addView(scanButton, LinearLayout.LayoutParams(0, dp(56), 1f))
+        root.addView(scanControls)
+
+        root.addView(TextView(this).apply {
+            text = "Örnek: Aynı üründen 10 tane saydıysan Adet = 10 yaz. Barkodu bir kez okut; sistem +10 adet kaydeder."
+            textSize = 12f
+            setTextColor(Color.rgb(107, 114, 128))
+            setPadding(dp(12), 0, dp(12), dp(6))
         })
 
         adapter = object : ArrayAdapter<String>(this, android.R.layout.simple_list_item_2, android.R.id.text1, rows) {
@@ -196,6 +241,7 @@ class MainActivity : ComponentActivity() {
                 return v
             }
         }
+
         list = ListView(this).apply {
             adapter = this@MainActivity.adapter
             dividerHeight = 1
@@ -258,14 +304,13 @@ class MainActivity : ComponentActivity() {
         return BarcodeScanning.getClient(options)
     }
 
-    private fun toggleScanning() {
-        if (scanningActive) {
-            scanningActive = false
-            active.clear()
-            linearRadio.isEnabled = true
-            qrRadio.isEnabled = true
-            scanButton.text = "Okutmayı Başlat"
-            status.text = "Okuma durduruldu. Türü seçip tekrar başlatabilirsiniz."
+    private fun beginSingleScan() {
+        if (scanningActive) return
+
+        val qty = quantityInput.text.toString().trim().toIntOrNull()
+        if (qty == null || qty < 1 || qty > 99999) {
+            Toast.makeText(this, "Adet 1 ile 99999 arasında olmalı.", Toast.LENGTH_SHORT).show()
+            quantityInput.requestFocus()
             return
         }
 
@@ -276,16 +321,28 @@ class MainActivity : ComponentActivity() {
             scanner = createScanner(currentMode)
         }
 
-        active.clear()
+        pendingQuantity = qty
+        scanConsumed = false
+        successfulScan = false
         scanningActive = true
+        quantityInput.isEnabled = false
         linearRadio.isEnabled = false
         qrRadio.isEnabled = false
-        scanButton.text = "Okutmayı Durdur"
-        status.text = if (currentMode == ScanMode.QR) {
-            "QR okuma aktif — QR kodu çerçeveye getirin."
-        } else {
-            "EAN / Düz Barkod okuma aktif — barkodu çerçeveye getirin."
+        scanButton.text = "Okunuyor… İlk barkodda durur"
+        status.text = "Barkod aranıyor… Yalnızca 1 sağlam okuma kabul edilecek."
+    }
+
+    private fun endSingleScan() {
+        scanningActive = false
+        quantityInput.isEnabled = true
+        linearRadio.isEnabled = true
+        qrRadio.isEnabled = true
+        scanButton.text = "Barkodu Oku — Basılı Tut"
+
+        if (!successfulScan) {
+            status.text = "Okuma durdu; barkod kabul edilmedi. Tekrar deneyin."
         }
+        scanConsumed = false
     }
 
     private fun startCamera() {
@@ -300,7 +357,7 @@ class MainActivity : ComponentActivity() {
                 a.setAnalyzer(executor) { proxy -> analyze(proxy) }
                 provider.unbindAll()
                 camera = provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, p, a)
-                status.text = "Hazır — türü seçin ve Okutmayı Başlat'a basın."
+                status.text = "Hazır — Adet'i girin, sonra Barkodu Oku tuşuna basılı tutun."
                 torch.isEnabled = camera?.cameraInfo?.hasFlashUnit() == true
             } catch (e: Exception) {
                 status.text = "Kamera başlatılamadı: ${e.message}"
@@ -310,51 +367,58 @@ class MainActivity : ComponentActivity() {
 
     @OptIn(ExperimentalGetImage::class)
     private fun analyze(proxy: ImageProxy) {
-        if (!scanningActive) {
+        if (!scanningActive || scanConsumed) {
             proxy.close()
             return
         }
+
         val media = proxy.image ?: run {
             proxy.close()
             return
         }
+
         val image = InputImage.fromMediaImage(media, proxy.imageInfo.rotationDegrees)
         scanner.process(image)
-            .addOnSuccessListener { if (scanningActive) handle(it) }
+            .addOnSuccessListener {
+                if (scanningActive && !scanConsumed) handleSingle(it)
+            }
             .addOnCompleteListener { proxy.close() }
     }
 
-    private fun handle(barcodes: List<Barcode>) {
+    private fun handleSingle(barcodes: List<Barcode>) {
+        if (!scanningActive || scanConsumed) return
+
+        val barcode = barcodes.firstOrNull { !it.rawValue.isNullOrBlank() } ?: return
+        val value = barcode.rawValue?.trim().orEmpty()
+        if (value.isBlank()) return
+
+        // Bir basışta yalnız bir barkod kabul edilir. Sonraki kamera kareleri yok sayılır.
+        scanConsumed = true
+        successfulScan = true
+        scanningActive = false
+
+        val qty = pendingQuantity.coerceAtLeast(1)
         val now = System.currentTimeMillis()
-        active.entries.removeAll { now - it.value > 1200 }
-        var changed = false
-        var last = ""
+        val old = entries[value]
 
-        for (b in barcodes) {
-            val value = b.rawValue?.trim().orEmpty()
-            if (value.isBlank()) continue
-
-            if (active.put(value, now) != null) continue
-
-            val old = entries[value]
-            if (old == null) {
-                entries[value] = BarcodeEntry(value, formatName(b.format), 1, now, now)
-            } else {
-                old.count++
-                old.lastSeen = now
-                old.format = formatName(b.format)
-            }
-            changed = true
-            last = value
+        if (old == null) {
+            entries[value] = BarcodeEntry(value, formatName(barcode.format), qty, now, now)
+        } else {
+            old.count += qty
+            old.lastSeen = now
+            old.format = formatName(barcode.format)
         }
 
-        if (changed) {
-            save()
-            runOnUiThread {
-                refresh()
-                status.text = "Okundu: $last  •  Toplam: ${entries.values.sumOf { it.count }}"
-                feedback()
-            }
+        save()
+        runOnUiThread {
+            refresh()
+            feedback()
+            status.text = "Okundu: $value  •  +$qty adet eklendi"
+            quantityInput.setText("1")
+            quantityInput.selectAll()
+            quantityInput.isEnabled = true
+            linearRadio.isEnabled = true
+            qrRadio.isEnabled = true
         }
     }
 
@@ -373,10 +437,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun feedback() {
-        try {
-            tone.startTone(ToneGenerator.TONE_PROP_BEEP2, 120)
-        } catch (_: Exception) {}
-
+        try { tone.startTone(ToneGenerator.TONE_PROP_BEEP2, 120) } catch (_: Exception) {}
         try {
             val vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
             if (android.os.Build.VERSION.SDK_INT >= 26) {
@@ -394,7 +455,7 @@ class MainActivity : ComponentActivity() {
         rows.addAll(s.map { it.value })
         adapter.notifyDataSetChanged()
         unique.text = "Benzersiz: ${s.size}"
-        total.text = "Okunan Adet: ${s.sumOf { it.count }}"
+        total.text = "Toplam Adet: ${s.sumOf { it.count }}"
         export.isEnabled = s.isNotEmpty()
     }
 
@@ -429,7 +490,6 @@ class MainActivity : ComponentActivity() {
             .setNegativeButton("Vazgeç", null)
             .setPositiveButton("Temizle") { _, _ ->
                 entries.clear()
-                active.clear()
                 save()
                 refresh()
                 status.text = "Liste temizlendi."
