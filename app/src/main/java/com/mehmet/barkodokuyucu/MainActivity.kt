@@ -3,19 +3,23 @@ package com.mehmet.barkodokuyucu
 import android.Manifest
 import android.app.AlertDialog
 import android.app.Dialog
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.media.AudioManager
 import android.media.ToneGenerator
+import android.net.Uri
 import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.text.InputType
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.View
 import android.view.ViewGroup
 import android.view.Window
 import android.widget.*
@@ -41,6 +45,7 @@ class MainActivity : ComponentActivity() {
     private enum class ScanMode { LINEAR, QR }
 
     private lateinit var preview: PreviewView
+    private lateinit var scanOverlay: ScanOverlayView
     private lateinit var status: TextView
     private lateinit var unique: TextView
     private lateinit var total: TextView
@@ -79,6 +84,7 @@ class MainActivity : ComponentActivity() {
         if (uri != null) try {
             contentResolver.openOutputStream(uri)?.use { XlsxExporter.writeWorkbook(it, entries.values.toList()) }
             Toast.makeText(this, "XLSX dosyası kaydedildi.", Toast.LENGTH_LONG).show()
+            showShareOptions(uri, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         } catch (e: Exception) {
             Toast.makeText(this, "XLSX oluşturulamadı: ${e.message}", Toast.LENGTH_LONG).show()
         }
@@ -90,6 +96,7 @@ class MainActivity : ComponentActivity() {
         if (uri != null) try {
             contentResolver.openOutputStream(uri)?.use { LegacyExporters.writeXls(it, entries.values.toList()) }
             Toast.makeText(this, "XLS dosyası kaydedildi.", Toast.LENGTH_LONG).show()
+            showShareOptions(uri, "application/vnd.ms-excel")
         } catch (e: Exception) {
             Toast.makeText(this, "XLS oluşturulamadı: ${e.message}", Toast.LENGTH_LONG).show()
         }
@@ -101,6 +108,7 @@ class MainActivity : ComponentActivity() {
         if (uri != null) try {
             contentResolver.openOutputStream(uri)?.use { LegacyExporters.writeTxt(it, entries.values.toList()) }
             Toast.makeText(this, "TXT dosyası kaydedildi.", Toast.LENGTH_LONG).show()
+            showShareOptions(uri, "text/plain")
         } catch (e: Exception) {
             Toast.makeText(this, "TXT oluşturulamadı: ${e.message}", Toast.LENGTH_LONG).show()
         }
@@ -126,27 +134,14 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(Color.rgb(245, 246, 248))
         }
 
-        val header = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setBackgroundColor(Color.rgb(17, 24, 39))
-            setPadding(dp(16), dp(9), dp(16), dp(10))
-        }
-        header.addView(TextView(this).apply {
-            text = "EMIRA HOME  •  İPEKTAÇ"
-            textSize = 16f
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            letterSpacing = 0.08f
-        })
-        header.addView(TextView(this).apply {
+        root.addView(TextView(this).apply {
             text = "Barkod Okuma Cihazı"
             textSize = 22f
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
-            setPadding(0, dp(2), 0, 0)
+            setBackgroundColor(Color.rgb(17, 24, 39))
+            setPadding(dp(16), dp(12), dp(16), dp(12))
         })
-        root.addView(header)
 
         val modePanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -161,12 +156,16 @@ class MainActivity : ComponentActivity() {
 
         val modeGroup = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
         linearRadio = RadioButton(this).apply {
+            id = View.generateViewId()
             text = "EAN / Düz Barkod"
-            isChecked = true
         }
-        qrRadio = RadioButton(this).apply { text = "QR" }
+        qrRadio = RadioButton(this).apply {
+            id = View.generateViewId()
+            text = "QR"
+        }
         modeGroup.addView(linearRadio, RadioGroup.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         modeGroup.addView(qrRadio, RadioGroup.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        modeGroup.check(linearRadio.id)
         modePanel.addView(modeGroup)
         root.addView(modePanel)
 
@@ -182,8 +181,9 @@ class MainActivity : ComponentActivity() {
 
         val frame = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         preview = PreviewView(this).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
+        scanOverlay = ScanOverlayView(this).apply { setQrMode(false) }
         frame.addView(preview, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        frame.addView(ScanOverlayView(this), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        frame.addView(scanOverlay, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(frame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 0.38f))
 
         status = TextView(this).apply {
@@ -192,6 +192,19 @@ class MainActivity : ComponentActivity() {
             setTextColor(Color.rgb(21, 128, 61))
         }
         root.addView(status)
+
+        modeGroup.setOnCheckedChangeListener { _, checkedId ->
+            val qrSelected = checkedId == qrRadio.id
+            scanOverlay.setQrMode(qrSelected)
+            status.text = if (qrSelected) {
+                "QR modu seçildi — kare çerçeveyi kullanın."
+            } else {
+                "EAN / Düz Barkod modu seçildi — yatay çerçeveyi kullanın."
+            }
+        }
+
+        linearRadio.setOnClickListener { modeGroup.check(linearRadio.id) }
+        qrRadio.setOnClickListener { modeGroup.check(qrRadio.id) }
 
         val scanControls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -359,7 +372,11 @@ class MainActivity : ComponentActivity() {
         linearRadio.isEnabled = false
         qrRadio.isEnabled = false
         scanButton.text = "Okunuyor… İlk barkodda durur"
-        status.text = "Barkod aranıyor… Yalnızca 1 sağlam okuma kabul edilecek."
+        status.text = if (currentMode == ScanMode.QR) {
+            "QR aranıyor… Yalnızca 1 sağlam QR okuması kabul edilecek."
+        } else {
+            "Barkod aranıyor… Yalnızca 1 sağlam okuma kabul edilecek."
+        }
     }
 
     private fun endSingleScan() {
@@ -370,7 +387,7 @@ class MainActivity : ComponentActivity() {
         scanButton.text = "Barkodu Oku — Basılı Tut"
 
         if (!successfulScan) {
-            status.text = "Okuma durdu; barkod kabul edilmedi. Tekrar deneyin."
+            status.text = "Okuma durdu; kod kabul edilmedi. Tekrar deneyin."
         }
         scanConsumed = false
     }
@@ -387,7 +404,7 @@ class MainActivity : ComponentActivity() {
                 a.setAnalyzer(executor) { proxy -> analyze(proxy) }
                 provider.unbindAll()
                 camera = provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, p, a)
-                status.text = "Hazır — Adet'i girin, sonra Barkodu Oku tuşuna basılı tutun."
+                status.text = "Hazır — okuma türünü seçin, Adet'i girin ve okutma tuşuna basılı tutun."
                 torch.isEnabled = camera?.cameraInfo?.hasFlashUnit() == true
             } catch (e: Exception) {
                 status.text = "Kamera başlatılamadı: ${e.message}"
@@ -593,6 +610,61 @@ class MainActivity : ComponentActivity() {
             dialog.dismiss()
         }
         cancelButton.setOnClickListener { dialog.dismiss() }
+    }
+
+    private fun showShareOptions(uri: Uri, mimeType: String) {
+        val panel = dialogPanel()
+        panel.addView(dialogTitle("Dosya hazır"))
+        panel.addView(dialogInfo("Dışa aktarma tamamlandı. Dosyayı nasıl iletmek istersiniz?"))
+
+        val whatsapp = dialogButton("WHATSAPP İLE GÖNDER")
+        val email = dialogButton("E-POSTA İLE GÖNDER")
+        val close = dialogButton("KAPAT")
+
+        panel.addView(whatsapp, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { bottomMargin = dp(8) })
+        panel.addView(email, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { bottomMargin = dp(8) })
+        panel.addView(close, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)))
+
+        val dialog = showPanelDialog(panel)
+        whatsapp.setOnClickListener {
+            dialog.dismiss()
+            shareToWhatsApp(uri, mimeType)
+        }
+        email.setOnClickListener {
+            dialog.dismiss()
+            shareByEmail(uri, mimeType)
+        }
+        close.setOnClickListener { dialog.dismiss() }
+    }
+
+    private fun buildShareIntent(uri: Uri, mimeType: String): Intent {
+        return Intent(Intent.ACTION_SEND).apply {
+            type = mimeType
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, "Barkod Sayım Listesi")
+            putExtra(Intent.EXTRA_TEXT, "Barkod sayım listesi ektedir.")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+
+    private fun shareToWhatsApp(uri: Uri, mimeType: String) {
+        val packages = listOf("com.whatsapp", "com.whatsapp.w4b")
+        for (packageName in packages) {
+            try {
+                startActivity(buildShareIntent(uri, mimeType).apply { setPackage(packageName) })
+                return
+            } catch (_: ActivityNotFoundException) {
+            }
+        }
+        Toast.makeText(this, "WhatsApp bulunamadı.", Toast.LENGTH_LONG).show()
+    }
+
+    private fun shareByEmail(uri: Uri, mimeType: String) {
+        try {
+            startActivity(Intent.createChooser(buildShareIntent(uri, mimeType), "E-posta ile gönder"))
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(this, "Dosya gönderebilecek bir e-posta uygulaması bulunamadı.", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun formatName(f: Int) = when (f) {
