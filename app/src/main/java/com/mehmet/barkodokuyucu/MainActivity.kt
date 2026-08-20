@@ -224,6 +224,13 @@ class MainActivity : ComponentActivity() {
             text = "Örnek: Aynı üründen 10 tane saydıysan Adet = 10 yaz. Barkodu bir kez okut; sistem +10 adet kaydeder."
             textSize = 12f
             setTextColor(Color.rgb(107, 114, 128))
+            setPadding(dp(12), 0, dp(12), dp(3))
+        })
+
+        root.addView(TextView(this).apply {
+            text = "Kayıt düzeltmek veya silmek için listedeki barkodun üzerine basılı tut."
+            textSize = 12f
+            setTextColor(Color.rgb(55, 65, 81))
             setPadding(dp(12), 0, dp(12), dp(6))
         })
 
@@ -246,6 +253,11 @@ class MainActivity : ComponentActivity() {
             adapter = this@MainActivity.adapter
             dividerHeight = 1
             setBackgroundColor(Color.WHITE)
+            setOnItemLongClickListener { _, _, position, _ ->
+                val item = entries.values.sortedByDescending { it.lastSeen }.getOrNull(position)
+                if (item != null) showEntryActions(item)
+                true
+            }
         }
         root.addView(list, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 0.62f))
 
@@ -419,6 +431,79 @@ class MainActivity : ComponentActivity() {
             linearRadio.isEnabled = true
             qrRadio.isEnabled = true
         }
+    }
+
+    private fun showEntryActions(item: BarcodeEntry) {
+        AlertDialog.Builder(this)
+            .setTitle(item.value)
+            .setMessage("${item.format} • Mevcut adet: ${item.count}")
+            .setItems(arrayOf("Adedi Düzenle", "Barkodu Sil")) { _, which ->
+                when (which) {
+                    0 -> editEntryCount(item)
+                    1 -> confirmDeleteEntry(item)
+                }
+            }
+            .setNegativeButton("Vazgeç", null)
+            .show()
+    }
+
+    private fun editEntryCount(item: BarcodeEntry) {
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText(item.count.toString())
+            gravity = Gravity.CENTER
+            textSize = 20f
+            setSelectAllOnFocus(true)
+            selectAll()
+        }
+
+        val container = FrameLayout(this).apply {
+            setPadding(dp(24), dp(4), dp(24), 0)
+            addView(input, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)))
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Adedi düzenle")
+            .setMessage("${item.value}\nMevcut adet: ${item.count}")
+            .setView(container)
+            .setNegativeButton("Vazgeç", null)
+            .setPositiveButton("Kaydet", null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val newCount = input.text.toString().trim().toIntOrNull()
+                if (newCount == null || newCount < 1 || newCount > 99999) {
+                    input.error = "1 ile 99999 arasında bir adet girin"
+                    return@setOnClickListener
+                }
+
+                val oldCount = item.count
+                item.count = newCount
+                item.lastSeen = System.currentTimeMillis()
+                save()
+                refresh()
+                status.text = "Düzeltildi: ${item.value} • $oldCount → $newCount adet"
+                dialog.dismiss()
+            }
+        }
+
+        dialog.show()
+        input.requestFocus()
+    }
+
+    private fun confirmDeleteEntry(item: BarcodeEntry) {
+        AlertDialog.Builder(this)
+            .setTitle("Barkod silinsin mi?")
+            .setMessage("${item.value}\n${item.count} adet olan bu kayıt tamamen silinecek.")
+            .setNegativeButton("Vazgeç", null)
+            .setPositiveButton("Evet, Sil") { _, _ ->
+                entries.remove(item.value)
+                save()
+                refresh()
+                status.text = "Silindi: ${item.value}"
+            }
+            .show()
     }
 
     private fun formatName(f: Int) = when (f) {
