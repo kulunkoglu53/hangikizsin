@@ -195,7 +195,7 @@ class MainActivity : ComponentActivity() {
             inputType = InputType.TYPE_CLASS_NUMBER
             gravity = Gravity.CENTER
             textSize = 18f
-            selectAllOnFocus = true
+            setSelectAllOnFocus(true)
         }
         qtyBox.addView(quantityInput, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
         scanControls.addView(qtyBox, LinearLayout.LayoutParams(dp(92), ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -392,7 +392,6 @@ class MainActivity : ComponentActivity() {
         val value = barcode.rawValue?.trim().orEmpty()
         if (value.isBlank()) return
 
-        // Bir basışta yalnız bir barkod kabul edilir. Sonraki kamera kareleri yok sayılır.
         scanConsumed = true
         successfulScan = true
         scanningActive = false
