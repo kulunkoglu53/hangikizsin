@@ -1,1 +1,4 @@
-SUCCESS
+SUCCESS_V2
+versionCode=8
+versionName=2.0
+file=BarkodOkumaCihazi-v2.apk
