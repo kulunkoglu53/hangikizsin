@@ -2,9 +2,12 @@ package com.mehmet.barkodokuyucu
 
 import android.Manifest
 import android.app.AlertDialog
+import android.app.Dialog
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.Bundle
@@ -14,6 +17,7 @@ import android.text.InputType
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ViewGroup
+import android.view.Window
 import android.widget.*
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
@@ -433,77 +437,148 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun dialogPanel(): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(22), dp(20), dp(22), dp(20))
+            background = GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = dp(16).toFloat()
+            }
+        }
+    }
+
+    private fun showPanelDialog(panel: LinearLayout): Dialog {
+        val dialog = Dialog(this)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        dialog.setContentView(panel)
+        dialog.setCanceledOnTouchOutside(true)
+        dialog.show()
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        dialog.window?.setLayout((resources.displayMetrics.widthPixels * 0.92f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+        return dialog
+    }
+
+    private fun dialogTitle(textValue: String) = TextView(this).apply {
+        text = textValue
+        textSize = 21f
+        setTextColor(Color.rgb(17, 24, 39))
+        setPadding(0, 0, 0, dp(10))
+    }
+
+    private fun dialogInfo(textValue: String) = TextView(this).apply {
+        text = textValue
+        textSize = 16f
+        setTextColor(Color.rgb(55, 65, 81))
+        setPadding(0, 0, 0, dp(14))
+    }
+
+    private fun dialogButton(textValue: String): Button {
+        return Button(this).apply {
+            text = textValue
+            textSize = 16f
+            minHeight = dp(52)
+        }
+    }
+
     private fun showEntryActions(item: BarcodeEntry) {
-        AlertDialog.Builder(this)
-            .setTitle(item.value)
-            .setMessage("${item.format} • Mevcut adet: ${item.count}\n\nNe yapmak istiyorsunuz?")
-            .setPositiveButton("ADEDİ DÜZENLE") { _, _ ->
-                editEntryCount(item)
-            }
-            .setNeutralButton("BARKODU SİL") { _, _ ->
-                confirmDeleteEntry(item)
-            }
-            .setNegativeButton("VAZGEÇ", null)
-            .show()
+        val panel = dialogPanel()
+        panel.addView(dialogTitle("Barkod işlemleri"))
+        panel.addView(dialogInfo("${item.value}\n${item.format} • Mevcut adet: ${item.count}"))
+
+        val edit = dialogButton("ADEDİ DÜZENLE")
+        val delete = dialogButton("BARKODU SİL").apply {
+            setTextColor(Color.rgb(185, 28, 28))
+        }
+        val cancel = dialogButton("VAZGEÇ")
+
+        panel.addView(edit, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { bottomMargin = dp(8) })
+        panel.addView(delete, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { bottomMargin = dp(8) })
+        panel.addView(cancel, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)))
+
+        val dialog = showPanelDialog(panel)
+        edit.setOnClickListener {
+            dialog.dismiss()
+            editEntryCount(item)
+        }
+        delete.setOnClickListener {
+            dialog.dismiss()
+            confirmDeleteEntry(item)
+        }
+        cancel.setOnClickListener { dialog.dismiss() }
     }
 
     private fun editEntryCount(item: BarcodeEntry) {
+        val panel = dialogPanel()
+        panel.addView(dialogTitle("Adedi düzenle"))
+        panel.addView(dialogInfo("Barkod: ${item.value}\nMevcut adet: ${item.count}"))
+
+        panel.addView(TextView(this).apply {
+            text = "Yeni adet"
+            textSize = 14f
+            setTextColor(Color.rgb(75, 85, 99))
+            setPadding(0, 0, 0, dp(4))
+        })
+
         val input = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_NUMBER
             setText(item.count.toString())
             gravity = Gravity.CENTER
-            textSize = 20f
+            textSize = 22f
+            setTextColor(Color.BLACK)
             setSelectAllOnFocus(true)
             selectAll()
         }
+        panel.addView(input, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58)).apply { bottomMargin = dp(12) })
 
-        val container = FrameLayout(this).apply {
-            setPadding(dp(24), dp(4), dp(24), 0)
-            addView(input, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)))
-        }
+        val saveButton = dialogButton("KAYDET")
+        val cancelButton = dialogButton("VAZGEÇ")
+        panel.addView(saveButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { bottomMargin = dp(8) })
+        panel.addView(cancelButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)))
 
-        val dialog = AlertDialog.Builder(this)
-            .setTitle("Adedi düzenle")
-            .setMessage("${item.value}\nMevcut adet: ${item.count}")
-            .setView(container)
-            .setNegativeButton("Vazgeç", null)
-            .setPositiveButton("Kaydet", null)
-            .create()
-
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val newCount = input.text.toString().trim().toIntOrNull()
-                if (newCount == null || newCount < 1 || newCount > 99999) {
-                    input.error = "1 ile 99999 arasında bir adet girin"
-                    return@setOnClickListener
-                }
-
-                val oldCount = item.count
-                item.count = newCount
-                item.lastSeen = System.currentTimeMillis()
-                save()
-                refresh()
-                status.text = "Düzeltildi: ${item.value} • $oldCount → $newCount adet"
-                dialog.dismiss()
-            }
-        }
-
-        dialog.show()
+        val dialog = showPanelDialog(panel)
         input.requestFocus()
+
+        saveButton.setOnClickListener {
+            val newCount = input.text.toString().trim().toIntOrNull()
+            if (newCount == null || newCount < 1 || newCount > 99999) {
+                input.error = "1 ile 99999 arasında bir adet girin"
+                return@setOnClickListener
+            }
+
+            val oldCount = item.count
+            item.count = newCount
+            item.lastSeen = System.currentTimeMillis()
+            save()
+            refresh()
+            status.text = "Düzeltildi: ${item.value} • $oldCount → $newCount adet"
+            dialog.dismiss()
+        }
+
+        cancelButton.setOnClickListener { dialog.dismiss() }
     }
 
     private fun confirmDeleteEntry(item: BarcodeEntry) {
-        AlertDialog.Builder(this)
-            .setTitle("Barkod silinsin mi?")
-            .setMessage("${item.value}\n${item.count} adet olan bu kayıt tamamen silinecek.")
-            .setNegativeButton("Vazgeç", null)
-            .setPositiveButton("Evet, Sil") { _, _ ->
-                entries.remove(item.value)
-                save()
-                refresh()
-                status.text = "Silindi: ${item.value}"
-            }
-            .show()
+        val panel = dialogPanel()
+        panel.addView(dialogTitle("Barkodu sil"))
+        panel.addView(dialogInfo("${item.value}\n${item.count} adet olan bu kayıt tamamen silinecek.\n\nBu işlem geri alınamaz."))
+
+        val deleteButton = dialogButton("EVET, BARKODU SİL").apply {
+            setTextColor(Color.rgb(185, 28, 28))
+        }
+        val cancelButton = dialogButton("VAZGEÇ")
+        panel.addView(deleteButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { bottomMargin = dp(8) })
+        panel.addView(cancelButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)))
+
+        val dialog = showPanelDialog(panel)
+        deleteButton.setOnClickListener {
+            entries.remove(item.value)
+            save()
+            refresh()
+            status.text = "Silindi: ${item.value}"
+            dialog.dismiss()
+        }
+        cancelButton.setOnClickListener { dialog.dismiss() }
     }
 
     private fun formatName(f: Int) = when (f) {
