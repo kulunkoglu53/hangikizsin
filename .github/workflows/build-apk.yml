@@ -1,4 +1,4 @@
-name: Build Barkod Okuyucu APK
+name: Build Barkod Okuma Cihazi v2 APK
 
 on:
   push:
@@ -21,21 +21,46 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: barkod-okuyucu-apk
+          fetch-depth: 0
+
+      - name: Verify requested source revisions
+        shell: bash
+        run: |
+          set -e
+          FILE="app/src/main/java/com/mehmet/barkodokuyucu/MainActivity.kt"
+          if grep -q "EMIRA HOME" "$FILE"; then
+            echo "Old brand header still exists"
+            exit 1
+          fi
+          if grep -q "RadioButton" "$FILE"; then
+            echo "Old RadioButton selector still exists"
+            exit 1
+          fi
+          grep -q "linearModeButton" "$FILE"
+          grep -q "qrModeButton" "$FILE"
+          grep -q "WindowInsetsCompat" "$FILE"
+          grep -q "showShareOptions" "$FILE"
+          grep -q "scanOverlay.setQrMode" "$FILE"
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+
       - name: Install Android SDK 35
         run: |
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
+
       - name: Build APK
         id: build
         shell: bash
@@ -45,30 +70,52 @@ jobs:
           CODE=${PIPESTATUS[0]}
           echo "exit_code=$CODE" >> "$GITHUB_OUTPUT"
           exit 0
+
+      - name: Verify APK identity
+        id: verify
+        shell: bash
+        run: |
+          set +e
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          if [ "${{ steps.build.outputs.exit_code }}" != "0" ] || [ ! -f "$APK" ]; then
+            echo "verify_code=1" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | tee apk-badging-v2.txt
+          grep -q "versionCode='8'" apk-badging-v2.txt || { echo "verify_code=1" >> "$GITHUB_OUTPUT"; exit 0; }
+          grep -q "versionName='2.0'" apk-badging-v2.txt || { echo "verify_code=1" >> "$GITHUB_OUTPUT"; exit 0; }
+          grep -q "application-label:'Barkod Okuma Cihazı'" apk-badging-v2.txt || { echo "verify_code=1" >> "$GITHUB_OUTPUT"; exit 0; }
+          echo "verify_code=0" >> "$GITHUB_OUTPUT"
+          exit 0
+
       - name: Publish build result
         shell: bash
         run: |
           mkdir -p apk-output
-          if [ "${{ steps.build.outputs.exit_code }}" = "0" ] && [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
+          if [ "${{ steps.build.outputs.exit_code }}" = "0" ] && [ "${{ steps.verify.outputs.verify_code }}" = "0" ]; then
+            cp app/build/outputs/apk/debug/app-debug.apk apk-output/BarkodOkumaCihazi-v2.apk
             cp app/build/outputs/apk/debug/app-debug.apk apk-output/BarkodOkuyucu.apk
-            echo SUCCESS > apk-output/BUILD_STATUS.txt
+            printf "SUCCESS_V2\nversionCode=8\nversionName=2.0\nfile=BarkodOkumaCihazi-v2.apk\n" > apk-output/BUILD_STATUS.txt
+            cp apk-badging-v2.txt apk-output/apk-badging-v2.txt
           else
-            echo FAILED > apk-output/BUILD_STATUS.txt
+            printf "FAILED_V2\n" > apk-output/BUILD_STATUS.txt
           fi
           cp build.log apk-output/build.log || true
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apk-output
-          git commit -m "BarkodOkuyucu build result v4" || exit 0
+          git add -f apk-output
+          git commit -m "Publish verified Barkod Okuma Cihazi v2 APK" || exit 0
           git push origin HEAD:barkod-okuyucu-apk
-      - name: Fail workflow if build failed
-        if: steps.build.outputs.exit_code != '0'
+
+      - name: Fail workflow if verification failed
+        if: steps.build.outputs.exit_code != '0' || steps.verify.outputs.verify_code != '0'
         run: exit 1
+
       - name: Upload APK artifact
-        if: steps.build.outputs.exit_code == '0'
+        if: steps.build.outputs.exit_code == '0' && steps.verify.outputs.verify_code == '0'
         uses: actions/upload-artifact@v4
         with:
-          name: BarkodOkuyucu-APK
-          path: apk-output/BarkodOkuyucu.apk
+          name: BarkodOkumaCihazi-v2
+          path: apk-output/BarkodOkumaCihazi-v2.apk
           if-no-files-found: error
           retention-days: 30
