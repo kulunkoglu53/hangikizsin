@@ -19,7 +19,6 @@ import android.os.Vibrator
 import android.text.InputType
 import android.view.Gravity
 import android.view.MotionEvent
-import android.view.View
 import android.view.ViewGroup
 import android.view.Window
 import android.widget.*
@@ -29,6 +28,8 @@ import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
@@ -54,8 +55,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var torch: Button
     private lateinit var scanButton: Button
     private lateinit var quantityInput: EditText
-    private lateinit var linearRadio: RadioButton
-    private lateinit var qrRadio: RadioButton
+    private lateinit var linearModeButton: Button
+    private lateinit var qrModeButton: Button
     private lateinit var scanner: BarcodeScanner
 
     private val executor = Executors.newSingleThreadExecutor()
@@ -145,28 +146,31 @@ class MainActivity : ComponentActivity() {
 
         val modePanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(10), dp(8), dp(10), dp(6))
+            setPadding(dp(10), dp(8), dp(10), dp(8))
             setBackgroundColor(Color.WHITE)
         }
         modePanel.addView(TextView(this).apply {
             text = "Okuma türü"
             textSize = 14f
             setTextColor(Color.rgb(55, 65, 81))
+            setPadding(0, 0, 0, dp(5))
         })
 
-        val modeGroup = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
-        linearRadio = RadioButton(this).apply {
-            id = View.generateViewId()
-            text = "EAN / Düz Barkod"
+        val modeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
         }
-        qrRadio = RadioButton(this).apply {
-            id = View.generateViewId()
-            text = "QR"
+        linearModeButton = Button(this).apply {
+            textSize = 14f
+            setOnClickListener { switchMode(ScanMode.LINEAR) }
         }
-        modeGroup.addView(linearRadio, RadioGroup.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        modeGroup.addView(qrRadio, RadioGroup.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        modeGroup.check(linearRadio.id)
-        modePanel.addView(modeGroup)
+        qrModeButton = Button(this).apply {
+            textSize = 14f
+            setOnClickListener { switchMode(ScanMode.QR) }
+        }
+        modeRow.addView(linearModeButton, LinearLayout.LayoutParams(0, dp(50), 1f).apply { marginEnd = dp(5) })
+        modeRow.addView(qrModeButton, LinearLayout.LayoutParams(0, dp(50), 1f).apply { marginStart = dp(5) })
+        modePanel.addView(modeRow)
         root.addView(modePanel)
 
         val stats = LinearLayout(this).apply {
@@ -181,7 +185,7 @@ class MainActivity : ComponentActivity() {
 
         val frame = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         preview = PreviewView(this).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
-        scanOverlay = ScanOverlayView(this).apply { setQrMode(false) }
+        scanOverlay = ScanOverlayView(this)
         frame.addView(preview, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         frame.addView(scanOverlay, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(frame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 0.38f))
@@ -192,19 +196,6 @@ class MainActivity : ComponentActivity() {
             setTextColor(Color.rgb(21, 128, 61))
         }
         root.addView(status)
-
-        modeGroup.setOnCheckedChangeListener { _, checkedId ->
-            val qrSelected = checkedId == qrRadio.id
-            scanOverlay.setQrMode(qrSelected)
-            status.text = if (qrSelected) {
-                "QR modu seçildi — kare çerçeveyi kullanın."
-            } else {
-                "EAN / Düz Barkod modu seçildi — yatay çerçeveyi kullanın."
-            }
-        }
-
-        linearRadio.setOnClickListener { modeGroup.check(linearRadio.id) }
-        qrRadio.setOnClickListener { modeGroup.check(qrRadio.id) }
 
         val scanControls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -232,7 +223,6 @@ class MainActivity : ComponentActivity() {
         scanControls.addView(qtyBox, LinearLayout.LayoutParams(dp(92), ViewGroup.LayoutParams.WRAP_CONTENT))
 
         scanButton = Button(this).apply {
-            text = "Barkodu Oku — Basılı Tut"
             setOnTouchListener { _, event ->
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
@@ -252,14 +242,14 @@ class MainActivity : ComponentActivity() {
         root.addView(scanControls)
 
         root.addView(TextView(this).apply {
-            text = "Örnek: Aynı üründen 10 tane saydıysan Adet = 10 yaz. Barkodu bir kez okut; sistem +10 adet kaydeder."
+            text = "Örnek: Aynı üründen 10 tane saydıysan Adet = 10 yaz. Kodu bir kez okut; sistem +10 adet kaydeder."
             textSize = 12f
             setTextColor(Color.rgb(107, 114, 128))
             setPadding(dp(12), 0, dp(12), dp(3))
         })
 
         root.addView(TextView(this).apply {
-            text = "Kayıt düzeltmek veya silmek için listedeki barkodun üzerine basılı tut."
+            text = "Kayıt düzeltmek veya silmek için listedeki kodun üzerine basılı tut."
             textSize = 12f
             setTextColor(Color.rgb(55, 65, 81))
             setPadding(dp(12), 0, dp(12), dp(6))
@@ -294,7 +284,7 @@ class MainActivity : ComponentActivity() {
 
         val buttons = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(8), dp(6), dp(8), dp(30))
+            setPadding(dp(8), dp(6), dp(8), dp(24))
             setBackgroundColor(Color.WHITE)
         }
         torch = Button(this).apply {
@@ -315,6 +305,16 @@ class MainActivity : ComponentActivity() {
         root.addView(buttons)
 
         setContentView(root)
+
+        ViewCompat.setOnApplyWindowInsetsListener(buttons) { view, insets ->
+            val nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+            view.setPadding(dp(8), dp(6), dp(8), nav.bottom + dp(24))
+            insets
+        }
+        ViewCompat.requestApplyInsets(buttons)
+
+        refreshModeVisuals()
+        updateScanButtonLabel()
     }
 
     private fun metric(t: String) = TextView(this).apply {
@@ -322,6 +322,52 @@ class MainActivity : ComponentActivity() {
         gravity = Gravity.CENTER
         textSize = 16f
         setBackgroundColor(Color.WHITE)
+    }
+
+    private fun modeBackground(active: Boolean): GradientDrawable {
+        return GradientDrawable().apply {
+            cornerRadius = dp(12).toFloat()
+            if (active) {
+                setColor(Color.rgb(37, 99, 235))
+                setStroke(dp(1), Color.rgb(29, 78, 216))
+            } else {
+                setColor(Color.rgb(243, 244, 246))
+                setStroke(dp(1), Color.rgb(209, 213, 219))
+            }
+        }
+    }
+
+    private fun refreshModeVisuals() {
+        val linearActive = currentMode == ScanMode.LINEAR
+        linearModeButton.text = if (linearActive) "✓ EAN / Düz Barkod" else "EAN / Düz Barkod"
+        qrModeButton.text = if (!linearActive) "✓ QR Kod" else "QR Kod"
+        linearModeButton.background = modeBackground(linearActive)
+        qrModeButton.background = modeBackground(!linearActive)
+        linearModeButton.setTextColor(if (linearActive) Color.WHITE else Color.rgb(55, 65, 81))
+        qrModeButton.setTextColor(if (!linearActive) Color.WHITE else Color.rgb(55, 65, 81))
+        scanOverlay.setQrMode(currentMode == ScanMode.QR)
+    }
+
+    private fun switchMode(mode: ScanMode) {
+        if (scanningActive || mode == currentMode) return
+        try { scanner.close() } catch (_: Exception) {}
+        currentMode = mode
+        scanner = createScanner(currentMode)
+        refreshModeVisuals()
+        updateScanButtonLabel()
+        status.text = if (mode == ScanMode.QR) {
+            "QR modu aktif — kare okuma alanını kullanın."
+        } else {
+            "EAN / Düz Barkod modu aktif — yatay okuma alanını kullanın."
+        }
+    }
+
+    private fun updateScanButtonLabel() {
+        scanButton.text = if (currentMode == ScanMode.QR) {
+            "QR Oku — Basılı Tut"
+        } else {
+            "Barkodu Oku — Basılı Tut"
+        }
     }
 
     private fun createScanner(mode: ScanMode): BarcodeScanner {
@@ -357,21 +403,14 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        val selectedMode = if (qrRadio.isChecked) ScanMode.QR else ScanMode.LINEAR
-        if (selectedMode != currentMode) {
-            try { scanner.close() } catch (_: Exception) {}
-            currentMode = selectedMode
-            scanner = createScanner(currentMode)
-        }
-
         pendingQuantity = qty
         scanConsumed = false
         successfulScan = false
         scanningActive = true
         quantityInput.isEnabled = false
-        linearRadio.isEnabled = false
-        qrRadio.isEnabled = false
-        scanButton.text = "Okunuyor… İlk barkodda durur"
+        linearModeButton.isEnabled = false
+        qrModeButton.isEnabled = false
+        scanButton.text = "Okunuyor… İlk sağlam okumada durur"
         status.text = if (currentMode == ScanMode.QR) {
             "QR aranıyor… Yalnızca 1 sağlam QR okuması kabul edilecek."
         } else {
@@ -382,9 +421,9 @@ class MainActivity : ComponentActivity() {
     private fun endSingleScan() {
         scanningActive = false
         quantityInput.isEnabled = true
-        linearRadio.isEnabled = true
-        qrRadio.isEnabled = true
-        scanButton.text = "Barkodu Oku — Basılı Tut"
+        linearModeButton.isEnabled = true
+        qrModeButton.isEnabled = true
+        updateScanButtonLabel()
 
         if (!successfulScan) {
             status.text = "Okuma durdu; kod kabul edilmedi. Tekrar deneyin."
@@ -463,8 +502,9 @@ class MainActivity : ComponentActivity() {
             quantityInput.setText("1")
             quantityInput.selectAll()
             quantityInput.isEnabled = true
-            linearRadio.isEnabled = true
-            qrRadio.isEnabled = true
+            linearModeButton.isEnabled = true
+            qrModeButton.isEnabled = true
+            updateScanButtonLabel()
         }
     }
 
@@ -713,18 +753,36 @@ class MainActivity : ComponentActivity() {
 
     private fun showExportOptions() {
         if (entries.isEmpty()) return
-        val options = arrayOf("Excel (.xlsx)", "Excel (.xls)", "Metin (.txt)")
-        AlertDialog.Builder(this)
-            .setTitle("Dışa aktarma formatı")
-            .setItems(options) { _, which ->
-                val name = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                when (which) {
-                    0 -> saveXlsx.launch("Barkod_Listesi_$name.xlsx")
-                    1 -> saveXls.launch("Barkod_Listesi_$name.xls")
-                    2 -> saveTxt.launch("Barkod_Listesi_$name.txt")
-                }
-            }
-            .show()
+
+        val panel = dialogPanel()
+        panel.addView(dialogTitle("Dışa aktarma formatı"))
+        panel.addView(dialogInfo("Kaydetmek istediğiniz dosya türünü seçin."))
+
+        val xlsx = dialogButton("EXCEL (.XLSX)")
+        val xls = dialogButton("EXCEL (.XLS)")
+        val txt = dialogButton("METİN (.TXT)")
+        val cancel = dialogButton("VAZGEÇ")
+
+        panel.addView(xlsx, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { bottomMargin = dp(8) })
+        panel.addView(xls, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { bottomMargin = dp(8) })
+        panel.addView(txt, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { bottomMargin = dp(8) })
+        panel.addView(cancel, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)))
+
+        val dialog = showPanelDialog(panel)
+        val name = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        xlsx.setOnClickListener {
+            dialog.dismiss()
+            saveXlsx.launch("Barkod_Listesi_$name.xlsx")
+        }
+        xls.setOnClickListener {
+            dialog.dismiss()
+            saveXls.launch("Barkod_Listesi_$name.xls")
+        }
+        txt.setOnClickListener {
+            dialog.dismiss()
+            saveTxt.launch("Barkod_Listesi_$name.txt")
+        }
+        cancel.setOnClickListener { dialog.dismiss() }
     }
 
     private fun clearAll() {
