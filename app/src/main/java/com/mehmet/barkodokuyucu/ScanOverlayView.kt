@@ -16,13 +16,28 @@ class ScanOverlayView(context: Context) : View(context) {
         strokeWidth = 6f
     }
 
+    private var qrMode = false
+
+    fun setQrMode(enabled: Boolean) {
+        qrMode = enabled
+        invalidate()
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val boxWidth = width * 0.82f
-        val boxHeight = min(height * 0.34f, boxWidth * 0.52f)
-        val left = (width - boxWidth) / 2f
-        val top = (height - boxHeight) / 2f
-        val rect = RectF(left, top, left + boxWidth, top + boxHeight)
+
+        val rect = if (qrMode) {
+            val side = min(width * 0.68f, height * 0.68f)
+            val left = (width - side) / 2f
+            val top = (height - side) / 2f
+            RectF(left, top, left + side, top + side)
+        } else {
+            val boxWidth = width * 0.82f
+            val boxHeight = min(height * 0.34f, boxWidth * 0.52f)
+            val left = (width - boxWidth) / 2f
+            val top = (height - boxHeight) / 2f
+            RectF(left, top, left + boxWidth, top + boxHeight)
+        }
 
         canvas.drawRect(0f, 0f, width.toFloat(), rect.top, shadePaint)
         canvas.drawRect(0f, rect.bottom, width.toFloat(), height.toFloat(), shadePaint)
