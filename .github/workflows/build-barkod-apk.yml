@@ -1,4 +1,4 @@
-name: Build Barkod Okuyucu APK
+name: Build Barkod Okuma Cihazi v2 APK
 
 on:
   push:
@@ -16,41 +16,82 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout Barkod app branch
+      - name: Checkout current app source
         uses: actions/checkout@v4
         with:
           ref: barkod-okuyucu-apk
           fetch-depth: 0
+
+      - name: Verify requested revisions are in source
+        shell: bash
+        run: |
+          set -e
+          FILE="app/src/main/java/com/mehmet/barkodokuyucu/MainActivity.kt"
+          if grep -q "EMIRA HOME" "$FILE"; then
+            echo "Old brand header is still present"
+            exit 1
+          fi
+          grep -q "linearModeButton" "$FILE"
+          grep -q "qrModeButton" "$FILE"
+          grep -q "WindowInsetsCompat" "$FILE"
+          grep -q "showShareOptions" "$FILE"
+          grep -q "scanOverlay.setQrMode" "$FILE"
+          if grep -q "RadioButton" "$FILE"; then
+            echo "Old RadioButton mode selector is still present"
+            exit 1
+          fi
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+
       - name: Install Android SDK 35
         run: |
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
+
       - name: Build APK
         run: gradle --no-daemon :app:assembleDebug
-      - name: Publish APK to barkod branch
+
+      - name: Verify built APK identity
+        shell: bash
         run: |
+          set -e
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | tee apk-badging.txt
+          grep -q "versionCode='8'" apk-badging.txt
+          grep -q "versionName='2.0'" apk-badging.txt
+          grep -q "application-label:'Barkod Okuma Cihazı'" apk-badging.txt
+
+      - name: Publish verified APK
+        shell: bash
+        run: |
+          set -e
           mkdir -p apk-output
+          cp app/build/outputs/apk/debug/app-debug.apk apk-output/BarkodOkumaCihazi-v2.apk
           cp app/build/outputs/apk/debug/app-debug.apk apk-output/BarkodOkuyucu.apk
+          printf "SUCCESS_V2\nversionCode=8\nversionName=2.0\nfile=BarkodOkumaCihazi-v2.apk\n" > apk-output/BUILD_STATUS.txt
+          cp apk-badging.txt apk-output/apk-badging-v2.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f apk-output/BarkodOkuyucu.apk
-          git commit -m "Build Emira Home Barkod APK final" || exit 0
+          git add -f apk-output/BarkodOkumaCihazi-v2.apk apk-output/BarkodOkuyucu.apk apk-output/BUILD_STATUS.txt apk-output/apk-badging-v2.txt
+          git commit -m "Build verified Barkod Okuma Cihazi v2 APK" || exit 0
           git push origin HEAD:barkod-okuyucu-apk
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BarkodOkuyucu-APK
-          path: apk-output/BarkodOkuyucu.apk
+          name: BarkodOkumaCihazi-v2
+          path: apk-output/BarkodOkumaCihazi-v2.apk
           if-no-files-found: error
           retention-days: 30
