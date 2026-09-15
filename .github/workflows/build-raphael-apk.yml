@@ -70,3 +70,5 @@ jobs:
             raphael-apk-badging.txt
           if-no-files-found: error
           retention-days: 30
+
+# v0.5 AI core build trigger
