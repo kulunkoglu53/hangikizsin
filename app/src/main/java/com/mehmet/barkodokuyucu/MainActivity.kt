@@ -1,843 +1,201 @@
 package com.mehmet.barkodokuyucu
 
 import android.Manifest
-import android.app.AlertDialog
-import android.app.Dialog
-import android.content.ActivityNotFoundException
-import android.content.Context
+import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Color
-import android.graphics.drawable.ColorDrawable
-import android.graphics.drawable.GradientDrawable
-import android.media.AudioManager
-import android.media.ToneGenerator
-import android.net.Uri
 import android.os.Bundle
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.text.InputType
-import android.view.Gravity
-import android.view.MotionEvent
-import android.view.ViewGroup
-import android.view.Window
-import android.widget.*
-import androidx.activity.ComponentActivity
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.core.*
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
-import androidx.core.content.ContextCompat
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
-import com.google.mlkit.vision.barcode.BarcodeScanner
-import com.google.mlkit.vision.barcode.BarcodeScannerOptions
-import com.google.mlkit.vision.barcode.BarcodeScanning
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.common.InputImage
-import org.json.JSONArray
+import android.os.Handler
+import android.os.Looper
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
+import android.view.WindowManager
+import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import org.json.JSONObject
-import java.text.SimpleDateFormat
-import java.util.*
-import java.util.concurrent.Executors
+import java.util.Locale
 
-class MainActivity : ComponentActivity() {
+class MainActivity : Activity(), RecognitionListener {
+    companion object { private const val REQ_MIC = 7001 }
 
-    private enum class ScanMode { LINEAR, QR }
+    private lateinit var webView: WebView
+    private var recognizer: SpeechRecognizer? = null
+    private var tts: TextToSpeech? = null
+    private var ttsReady = false
+    private val main = Handler(Looper.getMainLooper())
 
-    private lateinit var preview: PreviewView
-    private lateinit var scanOverlay: ScanOverlayView
-    private lateinit var status: TextView
-    private lateinit var unique: TextView
-    private lateinit var total: TextView
-    private lateinit var list: ListView
-    private lateinit var export: Button
-    private lateinit var torch: Button
-    private lateinit var scanButton: Button
-    private lateinit var quantityInput: EditText
-    private lateinit var linearModeButton: Button
-    private lateinit var qrModeButton: Button
-    private lateinit var scanner: BarcodeScanner
-
-    private val executor = Executors.newSingleThreadExecutor()
-    private var camera: Camera? = null
-    private var torchOn = false
-    private var scanningActive = false
-    private var scanConsumed = false
-    private var successfulScan = false
-    private var currentMode = ScanMode.LINEAR
-    private var pendingQuantity = 1
-
-    private val entries = LinkedHashMap<String, BarcodeEntry>()
-    private val rows = mutableListOf<String>()
-    private lateinit var adapter: ArrayAdapter<String>
-    private val prefs by lazy { getSharedPreferences("barcode_store", Context.MODE_PRIVATE) }
-    private val timeFmt = SimpleDateFormat("HH:mm:ss", Locale("tr", "TR"))
-    private val tone by lazy { ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100) }
-
-    private val permission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) startCamera() else status.text = "Kamera izni gerekli."
-    }
-
-    private val saveXlsx = registerForActivityResult(
-        ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    ) { uri ->
-        if (uri != null) try {
-            contentResolver.openOutputStream(uri)?.use { XlsxExporter.writeWorkbook(it, entries.values.toList()) }
-            Toast.makeText(this, "XLSX dosyası kaydedildi.", Toast.LENGTH_LONG).show()
-            showShareOptions(uri, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        } catch (e: Exception) {
-            Toast.makeText(this, "XLSX oluşturulamadı: ${e.message}", Toast.LENGTH_LONG).show()
-        }
-    }
-
-    private val saveXls = registerForActivityResult(
-        ActivityResultContracts.CreateDocument("application/vnd.ms-excel")
-    ) { uri ->
-        if (uri != null) try {
-            contentResolver.openOutputStream(uri)?.use { LegacyExporters.writeXls(it, entries.values.toList()) }
-            Toast.makeText(this, "XLS dosyası kaydedildi.", Toast.LENGTH_LONG).show()
-            showShareOptions(uri, "application/vnd.ms-excel")
-        } catch (e: Exception) {
-            Toast.makeText(this, "XLS oluşturulamadı: ${e.message}", Toast.LENGTH_LONG).show()
-        }
-    }
-
-    private val saveTxt = registerForActivityResult(
-        ActivityResultContracts.CreateDocument("text/plain")
-    ) { uri ->
-        if (uri != null) try {
-            contentResolver.openOutputStream(uri)?.use { LegacyExporters.writeTxt(it, entries.values.toList()) }
-            Toast.makeText(this, "TXT dosyası kaydedildi.", Toast.LENGTH_LONG).show()
-            showShareOptions(uri, "text/plain")
-        } catch (e: Exception) {
-            Toast.makeText(this, "TXT oluşturulamadı: ${e.message}", Toast.LENGTH_LONG).show()
-        }
-    }
-
+    @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        scanner = createScanner(ScanMode.LINEAR)
-        buildUi()
-        restore()
-        refresh()
+        window.statusBarColor = android.graphics.Color.rgb(5, 11, 18)
+        window.navigationBarColor = android.graphics.Color.rgb(5, 11, 18)
 
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-            startCamera()
-        } else {
-            permission.launch(Manifest.permission.CAMERA)
+        webView = WebView(this)
+        setContentView(webView)
+        webView.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            allowFileAccess = true
+            allowContentAccess = true
+            databaseEnabled = true
+            mediaPlaybackRequiresUserGesture = false
+            cacheMode = WebSettings.LOAD_DEFAULT
+        }
+        webView.webViewClient = WebViewClient()
+        webView.webChromeClient = WebChromeClient()
+        webView.addJavascriptInterface(NativeBridge(), "RAPHAELNative")
+
+        initSpeech()
+        initTts()
+        webView.loadUrl("file:///android_asset/index.html")
+    }
+
+    private fun initSpeech() {
+        if (SpeechRecognizer.isRecognitionAvailable(this)) {
+            recognizer = SpeechRecognizer.createSpeechRecognizer(this).also { it.setRecognitionListener(this) }
         }
     }
 
-    private fun buildUi() {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(245, 246, 248))
-        }
-
-        root.addView(TextView(this).apply {
-            text = "Barkod Okuma Cihazı"
-            textSize = 22f
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.rgb(17, 24, 39))
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-        })
-
-        val modePanel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(10), dp(8), dp(10), dp(8))
-            setBackgroundColor(Color.WHITE)
-        }
-        modePanel.addView(TextView(this).apply {
-            text = "Okuma türü"
-            textSize = 14f
-            setTextColor(Color.rgb(55, 65, 81))
-            setPadding(0, 0, 0, dp(5))
-        })
-
-        val modeRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        linearModeButton = Button(this).apply {
-            textSize = 14f
-            setOnClickListener { switchMode(ScanMode.LINEAR) }
-        }
-        qrModeButton = Button(this).apply {
-            textSize = 14f
-            setOnClickListener { switchMode(ScanMode.QR) }
-        }
-        modeRow.addView(linearModeButton, LinearLayout.LayoutParams(0, dp(50), 1f).apply { marginEnd = dp(5) })
-        modeRow.addView(qrModeButton, LinearLayout.LayoutParams(0, dp(50), 1f).apply { marginStart = dp(5) })
-        modePanel.addView(modeRow)
-        root.addView(modePanel)
-
-        val stats = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(10), dp(6), dp(10), dp(6))
-        }
-        unique = metric("Benzersiz: 0")
-        total = metric("Toplam Adet: 0")
-        stats.addView(unique, LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(5) })
-        stats.addView(total, LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginStart = dp(5) })
-        root.addView(stats)
-
-        val frame = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
-        preview = PreviewView(this).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
-        scanOverlay = ScanOverlayView(this)
-        frame.addView(preview, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        frame.addView(scanOverlay, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        root.addView(frame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 0.38f))
-
-        status = TextView(this).apply {
-            text = "Kamera hazırlanıyor…"
-            setPadding(dp(14), dp(8), dp(14), dp(8))
-            setTextColor(Color.rgb(21, 128, 61))
-        }
-        root.addView(status)
-
-        val scanControls = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), dp(4), dp(8), dp(4))
-        }
-
-        val qtyBox = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, 0, dp(6), 0)
-        }
-        qtyBox.addView(TextView(this).apply {
-            text = "Adet"
-            textSize = 12f
-            setTextColor(Color.rgb(75, 85, 99))
-        })
-        quantityInput = EditText(this).apply {
-            setText("1")
-            inputType = InputType.TYPE_CLASS_NUMBER
-            gravity = Gravity.CENTER
-            textSize = 18f
-            setSelectAllOnFocus(true)
-        }
-        qtyBox.addView(quantityInput, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
-        scanControls.addView(qtyBox, LinearLayout.LayoutParams(dp(92), ViewGroup.LayoutParams.WRAP_CONTENT))
-
-        scanButton = Button(this).apply {
-            setOnTouchListener { _, event ->
-                when (event.action) {
-                    MotionEvent.ACTION_DOWN -> {
-                        beginSingleScan()
-                        true
-                    }
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                        endSingleScan()
-                        performClick()
-                        true
-                    }
-                    else -> true
-                }
-            }
-        }
-        scanControls.addView(scanButton, LinearLayout.LayoutParams(0, dp(56), 1f))
-        root.addView(scanControls)
-
-        root.addView(TextView(this).apply {
-            text = "Örnek: Aynı üründen 10 tane saydıysan Adet = 10 yaz. Kodu bir kez okut; sistem +10 adet kaydeder."
-            textSize = 12f
-            setTextColor(Color.rgb(107, 114, 128))
-            setPadding(dp(12), 0, dp(12), dp(3))
-        })
-
-        root.addView(TextView(this).apply {
-            text = "Kayıt düzeltmek veya silmek için listedeki kodun üzerine basılı tut."
-            textSize = 12f
-            setTextColor(Color.rgb(55, 65, 81))
-            setPadding(dp(12), 0, dp(12), dp(6))
-        })
-
-        adapter = object : ArrayAdapter<String>(this, android.R.layout.simple_list_item_2, android.R.id.text1, rows) {
-            override fun getView(position: Int, convertView: android.view.View?, parent: ViewGroup): android.view.View {
-                val v = super.getView(position, convertView, parent)
-                val item = entries.values.sortedByDescending { it.lastSeen }.getOrNull(position)
-                v.findViewById<TextView>(android.R.id.text1).apply {
-                    text = item?.value ?: ""
-                    textSize = 17f
-                }
-                v.findViewById<TextView>(android.R.id.text2).text = item?.let {
-                    "${it.format} • Adet: ${it.count} • ${timeFmt.format(Date(it.lastSeen))}"
-                } ?: ""
-                return v
-            }
-        }
-
-        list = ListView(this).apply {
-            adapter = this@MainActivity.adapter
-            dividerHeight = 1
-            setBackgroundColor(Color.WHITE)
-            setOnItemLongClickListener { _, _, position, _ ->
-                val item = entries.values.sortedByDescending { it.lastSeen }.getOrNull(position)
-                if (item != null) showEntryActions(item)
-                true
-            }
-        }
-        root.addView(list, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 0.62f))
-
-        val buttons = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(8), dp(6), dp(8), dp(24))
-            setBackgroundColor(Color.WHITE)
-        }
-        torch = Button(this).apply {
-            text = "Fener"
-            setOnClickListener { toggleTorch() }
-        }
-        export = Button(this).apply {
-            text = "Dışa Aktar"
-            setOnClickListener { showExportOptions() }
-        }
-        val clear = Button(this).apply {
-            text = "Temizle"
-            setOnClickListener { clearAll() }
-        }
-        buttons.addView(torch, LinearLayout.LayoutParams(0, dp(52), 1f))
-        buttons.addView(export, LinearLayout.LayoutParams(0, dp(52), 1.3f))
-        buttons.addView(clear, LinearLayout.LayoutParams(0, dp(52), 1f))
-        root.addView(buttons)
-
-        setContentView(root)
-
-        ViewCompat.setOnApplyWindowInsetsListener(buttons) { view, insets ->
-            val nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
-            view.setPadding(dp(8), dp(6), dp(8), nav.bottom + dp(24))
-            insets
-        }
-        ViewCompat.requestApplyInsets(buttons)
-
-        refreshModeVisuals()
-        updateScanButtonLabel()
-    }
-
-    private fun metric(t: String) = TextView(this).apply {
-        text = t
-        gravity = Gravity.CENTER
-        textSize = 16f
-        setBackgroundColor(Color.WHITE)
-    }
-
-    private fun modeBackground(active: Boolean): GradientDrawable {
-        return GradientDrawable().apply {
-            cornerRadius = dp(12).toFloat()
-            if (active) {
-                setColor(Color.rgb(37, 99, 235))
-                setStroke(dp(1), Color.rgb(29, 78, 216))
-            } else {
-                setColor(Color.rgb(243, 244, 246))
-                setStroke(dp(1), Color.rgb(209, 213, 219))
+    private fun initTts() {
+        tts = TextToSpeech(this) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                val engine = tts ?: return@TextToSpeech
+                val result = engine.setLanguage(Locale("tr", "TR"))
+                ttsReady = result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED
+                engine.setSpeechRate(1.0f)
+                engine.setPitch(1.0f)
+                engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) = Unit
+                    override fun onDone(utteranceId: String?) = js("window.__raphaelNativeTtsDone&&window.__raphaelNativeTtsDone();")
+                    @Deprecated("Deprecated in Java")
+                    override fun onError(utteranceId: String?) = js("window.__raphaelNativeTtsDone&&window.__raphaelNativeTtsDone();")
+                })
             }
         }
     }
 
-    private fun refreshModeVisuals() {
-        val linearActive = currentMode == ScanMode.LINEAR
-        linearModeButton.text = if (linearActive) "✓ EAN / Düz Barkod" else "EAN / Düz Barkod"
-        qrModeButton.text = if (!linearActive) "✓ QR Kod" else "QR Kod"
-        linearModeButton.background = modeBackground(linearActive)
-        qrModeButton.background = modeBackground(!linearActive)
-        linearModeButton.setTextColor(if (linearActive) Color.WHITE else Color.rgb(55, 65, 81))
-        qrModeButton.setTextColor(if (!linearActive) Color.WHITE else Color.rgb(55, 65, 81))
-        scanOverlay.setQrMode(currentMode == ScanMode.QR)
+    private fun hasMic(): Boolean = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+
+    private fun requestMic() = runOnUiThread {
+        requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_MIC)
     }
 
-    private fun switchMode(mode: ScanMode) {
-        if (scanningActive || mode == currentMode) return
-        try { scanner.close() } catch (_: Exception) {}
-        currentMode = mode
-        scanner = createScanner(currentMode)
-        refreshModeVisuals()
-        updateScanButtonLabel()
-        status.text = if (mode == ScanMode.QR) {
-            "QR modu aktif — kare okuma alanını kullanın."
-        } else {
-            "EAN / Düz Barkod modu aktif — yatay okuma alanını kullanın."
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_MIC) {
+            val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+            js("window.__raphaelNativeMicPermission&&window.__raphaelNativeMicPermission($granted);")
         }
     }
 
-    private fun updateScanButtonLabel() {
-        scanButton.text = if (currentMode == ScanMode.QR) {
-            "QR Oku — Basılı Tut"
-        } else {
-            "Barkodu Oku — Basılı Tut"
+    private fun startListening(language: String) = runOnUiThread {
+        if (!hasMic()) {
+            js("window.__raphaelNativeSpeechError&&window.__raphaelNativeSpeechError('not-allowed');")
+            js("window.__raphaelNativeSpeechEnd&&window.__raphaelNativeSpeechEnd();")
+            return@runOnUiThread
+        }
+        val sr = recognizer
+        if (sr == null) {
+            js("window.__raphaelNativeSpeechError&&window.__raphaelNativeSpeechError('service-not-available');")
+            js("window.__raphaelNativeSpeechEnd&&window.__raphaelNativeSpeechEnd();")
+            return@runOnUiThread
+        }
+        try { sr.cancel() } catch (_: Exception) {}
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, language.ifBlank { "tr-TR" })
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "tr-TR")
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
+        }
+        try { sr.startListening(intent) }
+        catch (_: Exception) {
+            js("window.__raphaelNativeSpeechError&&window.__raphaelNativeSpeechError('start-failed');")
+            js("window.__raphaelNativeSpeechEnd&&window.__raphaelNativeSpeechEnd();")
         }
     }
 
-    private fun createScanner(mode: ScanMode): BarcodeScanner {
-        val options = if (mode == ScanMode.QR) {
-            BarcodeScannerOptions.Builder()
-                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
-                .build()
-        } else {
-            BarcodeScannerOptions.Builder()
-                .setBarcodeFormats(
-                    Barcode.FORMAT_EAN_13,
-                    Barcode.FORMAT_EAN_8,
-                    Barcode.FORMAT_UPC_A,
-                    Barcode.FORMAT_UPC_E,
-                    Barcode.FORMAT_CODE_128,
-                    Barcode.FORMAT_CODE_39,
-                    Barcode.FORMAT_CODE_93,
-                    Barcode.FORMAT_CODABAR,
-                    Barcode.FORMAT_ITF
-                )
-                .build()
-        }
-        return BarcodeScanning.getClient(options)
+    private fun stopListening(cancel: Boolean) = runOnUiThread {
+        try { if (cancel) recognizer?.cancel() else recognizer?.stopListening() } catch (_: Exception) {}
     }
 
-    private fun beginSingleScan() {
-        if (scanningActive) return
-
-        val qty = quantityInput.text.toString().trim().toIntOrNull()
-        if (qty == null || qty < 1 || qty > 99999) {
-            Toast.makeText(this, "Adet 1 ile 99999 arasında olmalı.", Toast.LENGTH_SHORT).show()
-            quantityInput.requestFocus()
-            return
+    private fun speak(text: String) = runOnUiThread {
+        val engine = tts
+        if (engine == null || !ttsReady || text.isBlank()) {
+            js("window.__raphaelNativeTtsDone&&window.__raphaelNativeTtsDone();")
+            return@runOnUiThread
         }
-
-        pendingQuantity = qty
-        scanConsumed = false
-        successfulScan = false
-        scanningActive = true
-        quantityInput.isEnabled = false
-        linearModeButton.isEnabled = false
-        qrModeButton.isEnabled = false
-        scanButton.text = "Okunuyor… İlk sağlam okumada durur"
-        status.text = if (currentMode == ScanMode.QR) {
-            "QR aranıyor… Yalnızca 1 sağlam QR okuması kabul edilecek."
-        } else {
-            "Barkod aranıyor… Yalnızca 1 sağlam okuma kabul edilecek."
-        }
-    }
-
-    private fun endSingleScan() {
-        scanningActive = false
-        quantityInput.isEnabled = true
-        linearModeButton.isEnabled = true
-        qrModeButton.isEnabled = true
-        updateScanButtonLabel()
-
-        if (!successfulScan) {
-            status.text = "Okuma durdu; kod kabul edilmedi. Tekrar deneyin."
-        }
-        scanConsumed = false
-    }
-
-    private fun startCamera() {
-        val f = ProcessCameraProvider.getInstance(this)
-        f.addListener({
-            try {
-                val provider = f.get()
-                val p = Preview.Builder().build().also { it.setSurfaceProvider(preview.surfaceProvider) }
-                val a = ImageAnalysis.Builder()
-                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                    .build()
-                a.setAnalyzer(executor) { proxy -> analyze(proxy) }
-                provider.unbindAll()
-                camera = provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, p, a)
-                status.text = "Hazır — okuma türünü seçin, Adet'i girin ve okutma tuşuna basılı tutun."
-                torch.isEnabled = camera?.cameraInfo?.hasFlashUnit() == true
-            } catch (e: Exception) {
-                status.text = "Kamera başlatılamadı: ${e.message}"
-            }
-        }, ContextCompat.getMainExecutor(this))
-    }
-
-    @OptIn(ExperimentalGetImage::class)
-    private fun analyze(proxy: ImageProxy) {
-        if (!scanningActive || scanConsumed) {
-            proxy.close()
-            return
-        }
-
-        val media = proxy.image ?: run {
-            proxy.close()
-            return
-        }
-
-        val image = InputImage.fromMediaImage(media, proxy.imageInfo.rotationDegrees)
-        scanner.process(image)
-            .addOnSuccessListener {
-                if (scanningActive && !scanConsumed) handleSingle(it)
-            }
-            .addOnCompleteListener { proxy.close() }
-    }
-
-    private fun handleSingle(barcodes: List<Barcode>) {
-        if (!scanningActive || scanConsumed) return
-
-        val barcode = barcodes.firstOrNull { !it.rawValue.isNullOrBlank() } ?: return
-        val value = barcode.rawValue?.trim().orEmpty()
-        if (value.isBlank()) return
-
-        scanConsumed = true
-        successfulScan = true
-        scanningActive = false
-
-        val qty = pendingQuantity.coerceAtLeast(1)
-        val now = System.currentTimeMillis()
-        val old = entries[value]
-
-        if (old == null) {
-            entries[value] = BarcodeEntry(value, formatName(barcode.format), qty, now, now)
-        } else {
-            old.count += qty
-            old.lastSeen = now
-            old.format = formatName(barcode.format)
-        }
-
-        save()
-        runOnUiThread {
-            refresh()
-            feedback()
-            status.text = "Okundu: $value  •  +$qty adet eklendi"
-            quantityInput.setText("1")
-            quantityInput.selectAll()
-            quantityInput.isEnabled = true
-            linearModeButton.isEnabled = true
-            qrModeButton.isEnabled = true
-            updateScanButtonLabel()
-        }
-    }
-
-    private fun dialogPanel(): LinearLayout {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(22), dp(20), dp(22), dp(20))
-            background = GradientDrawable().apply {
-                setColor(Color.WHITE)
-                cornerRadius = dp(16).toFloat()
-            }
-        }
-    }
-
-    private fun showPanelDialog(panel: LinearLayout): Dialog {
-        val dialog = Dialog(this)
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
-        dialog.setContentView(panel)
-        dialog.setCanceledOnTouchOutside(true)
-        dialog.show()
-        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-        dialog.window?.setLayout((resources.displayMetrics.widthPixels * 0.92f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
-        return dialog
-    }
-
-    private fun dialogTitle(textValue: String) = TextView(this).apply {
-        text = textValue
-        textSize = 21f
-        setTextColor(Color.rgb(17, 24, 39))
-        setPadding(0, 0, 0, dp(10))
-    }
-
-    private fun dialogInfo(textValue: String) = TextView(this).apply {
-        text = textValue
-        textSize = 16f
-        setTextColor(Color.rgb(55, 65, 81))
-        setPadding(0, 0, 0, dp(14))
-    }
-
-    private fun dialogButton(textValue: String): Button {
-        return Button(this).apply {
-            text = textValue
-            textSize = 16f
-            minHeight = dp(52)
-        }
-    }
-
-    private fun showEntryActions(item: BarcodeEntry) {
-        val panel = dialogPanel()
-        panel.addView(dialogTitle("Barkod işlemleri"))
-        panel.addView(dialogInfo("${item.value}\n${item.format} • Mevcut adet: ${item.count}"))
-
-        val edit = dialogButton("ADEDİ DÜZENLE")
-        val delete = dialogButton("BARKODU SİL").apply {
-            setTextColor(Color.rgb(185, 28, 28))
-        }
-        val cancel = dialogButton("VAZGEÇ")
-
-        panel.addView(edit, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { bottomMargin = dp(8) })
-        panel.addView(delete, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { bottomMargin = dp(8) })
-        panel.addView(cancel, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)))
-
-        val dialog = showPanelDialog(panel)
-        edit.setOnClickListener {
-            dialog.dismiss()
-            editEntryCount(item)
-        }
-        delete.setOnClickListener {
-            dialog.dismiss()
-            confirmDeleteEntry(item)
-        }
-        cancel.setOnClickListener { dialog.dismiss() }
-    }
-
-    private fun editEntryCount(item: BarcodeEntry) {
-        val panel = dialogPanel()
-        panel.addView(dialogTitle("Adedi düzenle"))
-        panel.addView(dialogInfo("Barkod: ${item.value}\nMevcut adet: ${item.count}"))
-
-        panel.addView(TextView(this).apply {
-            text = "Yeni adet"
-            textSize = 14f
-            setTextColor(Color.rgb(75, 85, 99))
-            setPadding(0, 0, 0, dp(4))
-        })
-
-        val input = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER
-            setText(item.count.toString())
-            gravity = Gravity.CENTER
-            textSize = 22f
-            setTextColor(Color.BLACK)
-            setSelectAllOnFocus(true)
-            selectAll()
-        }
-        panel.addView(input, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58)).apply { bottomMargin = dp(12) })
-
-        val saveButton = dialogButton("KAYDET")
-        val cancelButton = dialogButton("VAZGEÇ")
-        panel.addView(saveButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { bottomMargin = dp(8) })
-        panel.addView(cancelButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)))
-
-        val dialog = showPanelDialog(panel)
-        input.requestFocus()
-
-        saveButton.setOnClickListener {
-            val newCount = input.text.toString().trim().toIntOrNull()
-            if (newCount == null || newCount < 1 || newCount > 99999) {
-                input.error = "1 ile 99999 arasında bir adet girin"
-                return@setOnClickListener
-            }
-
-            val oldCount = item.count
-            item.count = newCount
-            item.lastSeen = System.currentTimeMillis()
-            save()
-            refresh()
-            status.text = "Düzeltildi: ${item.value} • $oldCount → $newCount adet"
-            dialog.dismiss()
-        }
-
-        cancelButton.setOnClickListener { dialog.dismiss() }
-    }
-
-    private fun confirmDeleteEntry(item: BarcodeEntry) {
-        val panel = dialogPanel()
-        panel.addView(dialogTitle("Barkodu sil"))
-        panel.addView(dialogInfo("${item.value}\n${item.count} adet olan bu kayıt tamamen silinecek.\n\nBu işlem geri alınamaz."))
-
-        val deleteButton = dialogButton("EVET, BARKODU SİL").apply {
-            setTextColor(Color.rgb(185, 28, 28))
-        }
-        val cancelButton = dialogButton("VAZGEÇ")
-        panel.addView(deleteButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { bottomMargin = dp(8) })
-        panel.addView(cancelButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)))
-
-        val dialog = showPanelDialog(panel)
-        deleteButton.setOnClickListener {
-            entries.remove(item.value)
-            save()
-            refresh()
-            status.text = "Silindi: ${item.value}"
-            dialog.dismiss()
-        }
-        cancelButton.setOnClickListener { dialog.dismiss() }
-    }
-
-    private fun showShareOptions(uri: Uri, mimeType: String) {
-        val panel = dialogPanel()
-        panel.addView(dialogTitle("Dosya hazır"))
-        panel.addView(dialogInfo("Dışa aktarma tamamlandı. Dosyayı nasıl iletmek istersiniz?"))
-
-        val whatsapp = dialogButton("WHATSAPP İLE GÖNDER")
-        val email = dialogButton("E-POSTA İLE GÖNDER")
-        val close = dialogButton("KAPAT")
-
-        panel.addView(whatsapp, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { bottomMargin = dp(8) })
-        panel.addView(email, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { bottomMargin = dp(8) })
-        panel.addView(close, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)))
-
-        val dialog = showPanelDialog(panel)
-        whatsapp.setOnClickListener {
-            dialog.dismiss()
-            shareToWhatsApp(uri, mimeType)
-        }
-        email.setOnClickListener {
-            dialog.dismiss()
-            shareByEmail(uri, mimeType)
-        }
-        close.setOnClickListener { dialog.dismiss() }
-    }
-
-    private fun buildShareIntent(uri: Uri, mimeType: String): Intent {
-        return Intent(Intent.ACTION_SEND).apply {
-            type = mimeType
-            putExtra(Intent.EXTRA_STREAM, uri)
-            putExtra(Intent.EXTRA_SUBJECT, "Barkod Sayım Listesi")
-            putExtra(Intent.EXTRA_TEXT, "Barkod sayım listesi ektedir.")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-    }
-
-    private fun shareToWhatsApp(uri: Uri, mimeType: String) {
-        val packages = listOf("com.whatsapp", "com.whatsapp.w4b")
-        for (packageName in packages) {
-            try {
-                startActivity(buildShareIntent(uri, mimeType).apply { setPackage(packageName) })
-                return
-            } catch (_: ActivityNotFoundException) {
-            }
-        }
-        Toast.makeText(this, "WhatsApp bulunamadı.", Toast.LENGTH_LONG).show()
-    }
-
-    private fun shareByEmail(uri: Uri, mimeType: String) {
         try {
-            startActivity(Intent.createChooser(buildShareIntent(uri, mimeType), "E-posta ile gönder"))
-        } catch (_: ActivityNotFoundException) {
-            Toast.makeText(this, "Dosya gönderebilecek bir e-posta uygulaması bulunamadı.", Toast.LENGTH_LONG).show()
+            engine.stop()
+            val id = "raphael-${System.currentTimeMillis()}"
+            engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, id)
+        } catch (_: Exception) {
+            js("window.__raphaelNativeTtsDone&&window.__raphaelNativeTtsDone();")
         }
     }
 
-    private fun formatName(f: Int) = when (f) {
-        Barcode.FORMAT_EAN_13 -> "EAN-13"
-        Barcode.FORMAT_EAN_8 -> "EAN-8"
-        Barcode.FORMAT_UPC_A -> "UPC-A"
-        Barcode.FORMAT_UPC_E -> "UPC-E"
-        Barcode.FORMAT_CODE_128 -> "CODE 128"
-        Barcode.FORMAT_CODE_39 -> "CODE 39"
-        Barcode.FORMAT_CODE_93 -> "CODE 93"
-        Barcode.FORMAT_CODABAR -> "CODABAR"
-        Barcode.FORMAT_ITF -> "ITF"
-        Barcode.FORMAT_QR_CODE -> "QR"
-        else -> "BARKOD"
+    private fun q(value: String): String = JSONObject.quote(value)
+    private fun js(code: String) = main.post { if (!isFinishing) webView.evaluateJavascript(code, null) }
+
+    private fun errName(code: Int): String = when (code) {
+        SpeechRecognizer.ERROR_AUDIO -> "audio-capture"
+        SpeechRecognizer.ERROR_CLIENT -> "aborted"
+        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "not-allowed"
+        SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "network"
+        SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "no-speech"
+        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "recognizer-busy"
+        SpeechRecognizer.ERROR_SERVER -> "server"
+        else -> "unknown"
     }
 
-    private fun feedback() {
-        try { tone.startTone(ToneGenerator.TONE_PROP_BEEP2, 120) } catch (_: Exception) {}
-        try {
-            val vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
-            if (android.os.Build.VERSION.SDK_INT >= 26) {
-                vibrator.vibrate(VibrationEffect.createOneShot(90, VibrationEffect.DEFAULT_AMPLITUDE))
-            } else {
-                @Suppress("DEPRECATION")
-                vibrator.vibrate(90)
-            }
-        } catch (_: Exception) {}
+    override fun onReadyForSpeech(params: Bundle?) = js("window.__raphaelNativeSpeechStart&&window.__raphaelNativeSpeechStart();")
+    override fun onBeginningOfSpeech() = js("window.__raphaelNativeSpeechBeginning&&window.__raphaelNativeSpeechBeginning();")
+    override fun onRmsChanged(rmsdB: Float) = Unit
+    override fun onBufferReceived(buffer: ByteArray?) = Unit
+    override fun onEndOfSpeech() = js("window.__raphaelNativeSpeechEndOfSpeech&&window.__raphaelNativeSpeechEndOfSpeech();")
+    override fun onError(error: Int) {
+        js("window.__raphaelNativeSpeechError&&window.__raphaelNativeSpeechError(${q(errName(error))});")
+        js("window.__raphaelNativeSpeechEnd&&window.__raphaelNativeSpeechEnd();")
     }
-
-    private fun refresh() {
-        val s = entries.values.sortedByDescending { it.lastSeen }
-        rows.clear()
-        rows.addAll(s.map { it.value })
-        adapter.notifyDataSetChanged()
-        unique.text = "Benzersiz: ${s.size}"
-        total.text = "Toplam Adet: ${s.sumOf { it.count }}"
-        export.isEnabled = s.isNotEmpty()
+    override fun onResults(results: Bundle?) {
+        val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
+        if (!text.isNullOrBlank()) js("window.__raphaelNativeSpeechResult&&window.__raphaelNativeSpeechResult(${q(text)},true);")
+        js("window.__raphaelNativeSpeechEnd&&window.__raphaelNativeSpeechEnd();")
     }
-
-    private fun toggleTorch() {
-        val c = camera ?: return
-        torchOn = !torchOn
-        c.cameraControl.enableTorch(torchOn)
-        torch.text = if (torchOn) "Fener Kapat" else "Fener"
+    override fun onPartialResults(partialResults: Bundle?) {
+        val text = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
+        if (!text.isNullOrBlank()) js("window.__raphaelNativeSpeechResult&&window.__raphaelNativeSpeechResult(${q(text)},false);")
     }
+    override fun onEvent(eventType: Int, params: Bundle?) = Unit
 
-    private fun showExportOptions() {
-        if (entries.isEmpty()) return
-
-        val panel = dialogPanel()
-        panel.addView(dialogTitle("Dışa aktarma formatı"))
-        panel.addView(dialogInfo("Kaydetmek istediğiniz dosya türünü seçin."))
-
-        val xlsx = dialogButton("EXCEL (.XLSX)")
-        val xls = dialogButton("EXCEL (.XLS)")
-        val txt = dialogButton("METİN (.TXT)")
-        val cancel = dialogButton("VAZGEÇ")
-
-        panel.addView(xlsx, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { bottomMargin = dp(8) })
-        panel.addView(xls, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { bottomMargin = dp(8) })
-        panel.addView(txt, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { bottomMargin = dp(8) })
-        panel.addView(cancel, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)))
-
-        val dialog = showPanelDialog(panel)
-        val name = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        xlsx.setOnClickListener {
-            dialog.dismiss()
-            saveXlsx.launch("Barkod_Listesi_$name.xlsx")
+    inner class NativeBridge {
+        @JavascriptInterface fun hasMicrophonePermission(): Boolean = hasMic()
+        @JavascriptInterface fun requestMicrophonePermission() = requestMic()
+        @JavascriptInterface fun startListening(language: String) = this@MainActivity.startListening(language)
+        @JavascriptInterface fun stopListening() = this@MainActivity.stopListening(false)
+        @JavascriptInterface fun cancelListening() = this@MainActivity.stopListening(true)
+        @JavascriptInterface fun speak(text: String) = this@MainActivity.speak(text)
+        @JavascriptInterface fun setHandsFreeActive(active: Boolean) = runOnUiThread {
+            if (active) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
-        xls.setOnClickListener {
-            dialog.dismiss()
-            saveXls.launch("Barkod_Listesi_$name.xls")
-        }
-        txt.setOnClickListener {
-            dialog.dismiss()
-            saveTxt.launch("Barkod_Listesi_$name.txt")
-        }
-        cancel.setOnClickListener { dialog.dismiss() }
     }
-
-    private fun clearAll() {
-        if (entries.isEmpty()) return
-        AlertDialog.Builder(this)
-            .setTitle("Liste temizlensin mi?")
-            .setMessage("Okunan tüm barkodlar ve adetleri silinecek.")
-            .setNegativeButton("Vazgeç", null)
-            .setPositiveButton("Temizle") { _, _ ->
-                entries.clear()
-                save()
-                refresh()
-                status.text = "Liste temizlendi."
-            }
-            .show()
-    }
-
-    private fun save() {
-        val a = JSONArray()
-        entries.values.forEach { e ->
-            a.put(JSONObject().apply {
-                put("value", e.value)
-                put("format", e.format)
-                put("count", e.count)
-                put("firstSeen", e.firstSeen)
-                put("lastSeen", e.lastSeen)
-            })
-        }
-        prefs.edit().putString("entries", a.toString()).apply()
-    }
-
-    private fun restore() {
-        try {
-            val raw = prefs.getString("entries", null) ?: return
-            val a = JSONArray(raw)
-            for (i in 0 until a.length()) {
-                val o = a.getJSONObject(i)
-                val e = BarcodeEntry(
-                    o.getString("value"),
-                    o.optString("format", "BARKOD"),
-                    o.optInt("count", 1),
-                    o.optLong("firstSeen"),
-                    o.optLong("lastSeen")
-                )
-                entries[e.value] = e
-            }
-        } catch (_: Exception) {}
-    }
-
-    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     override fun onDestroy() {
+        try { recognizer?.destroy() } catch (_: Exception) {}
+        recognizer = null
+        try { tts?.stop(); tts?.shutdown() } catch (_: Exception) {}
+        tts = null
+        try { webView.removeJavascriptInterface("RAPHAELNative"); webView.destroy() } catch (_: Exception) {}
         super.onDestroy()
-        try { scanner.close() } catch (_: Exception) {}
-        executor.shutdown()
-        try { tone.release() } catch (_: Exception) {}
     }
 }
