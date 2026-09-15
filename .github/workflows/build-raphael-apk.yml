@@ -50,19 +50,23 @@ jobs:
           APK="app/build/outputs/apk/debug/app-debug.apk"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | tee raphael-apk-badging.txt
           grep -q "package: name='com.raphael.assistant'" raphael-apk-badging.txt
-          grep -q "versionName='0.4.0'" raphael-apk-badging.txt
+          grep -q "versionName='0.5.0'" raphael-apk-badging.txt
           grep -q "application-label:'RAPHAEL'" raphael-apk-badging.txt
+          grep -q "android.permission.RECORD_AUDIO" raphael-apk-badging.txt
+          grep -q "android.permission.READ_CONTACTS" raphael-apk-badging.txt
+          grep -q "android.permission.CALL_PHONE" raphael-apk-badging.txt
+          grep -q "android.permission.WRITE_CALENDAR" raphael-apk-badging.txt
           mkdir -p apk-output-raphael
-          cp "$APK" apk-output-raphael/RAPHAEL-Mobile-v0.4.apk
-          sha256sum apk-output-raphael/RAPHAEL-Mobile-v0.4.apk > apk-output-raphael/RAPHAEL-Mobile-v0.4.sha256
+          cp "$APK" apk-output-raphael/RAPHAEL-Mobile-v0.5.apk
+          sha256sum apk-output-raphael/RAPHAEL-Mobile-v0.5.apk > apk-output-raphael/RAPHAEL-Mobile-v0.5.sha256
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: RAPHAEL-Mobile-v0.4
+          name: RAPHAEL-Mobile-v0.5
           path: |
-            apk-output-raphael/RAPHAEL-Mobile-v0.4.apk
-            apk-output-raphael/RAPHAEL-Mobile-v0.4.sha256
+            apk-output-raphael/RAPHAEL-Mobile-v0.5.apk
+            apk-output-raphael/RAPHAEL-Mobile-v0.5.sha256
             raphael-apk-badging.txt
           if-no-files-found: error
           retention-days: 30
