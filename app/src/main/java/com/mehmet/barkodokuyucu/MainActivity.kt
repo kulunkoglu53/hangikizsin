@@ -144,7 +144,9 @@ class MainActivity : Activity(), RecognitionListener {
     }
 
     private fun q(value: String): String = JSONObject.quote(value)
-    private fun js(code: String) = main.post { if (!isFinishing) webView.evaluateJavascript(code, null) }
+    private fun js(code: String) {
+        main.post { if (!isFinishing) webView.evaluateJavascript(code, null) }
+    }
 
     private fun errName(code: Int): String = when (code) {
         SpeechRecognizer.ERROR_AUDIO -> "audio-capture"
