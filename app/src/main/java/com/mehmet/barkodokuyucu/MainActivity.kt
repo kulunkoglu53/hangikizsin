@@ -400,14 +400,14 @@ class MainActivity : Activity(), RecognitionListener {
 
     inner class NativeBridge {
         @JavascriptInterface fun hasMicrophonePermission(): Boolean = hasMic()
-        @JavascriptInterface fun requestCorePermissions() = requestCorePermissions()
+        @JavascriptInterface fun requestCorePermissions() { this@MainActivity.requestCorePermissions() }
         @JavascriptInterface fun startListening(language: String) = this@MainActivity.startListening(language)
         @JavascriptInterface fun stopListening() = this@MainActivity.stopListening(false)
         @JavascriptInterface fun cancelListening() = this@MainActivity.stopListening(true)
         @JavascriptInterface fun speak(text: String) = this@MainActivity.speak(text)
         @JavascriptInterface fun saveApiKey(value: String): Boolean = saveApiKeySecure(value)
         @JavascriptInterface fun hasApiKey(): Boolean = !readApiKey().isNullOrBlank()
-        @JavascriptInterface fun clearApiKey() = clearApiKey()
+        @JavascriptInterface fun clearApiKey() { this@MainActivity.clearApiKey() }
         @JavascriptInterface fun askAi(text: String, contextJson: String, research: Boolean) = this@MainActivity.askAi(text, contextJson, research)
         @JavascriptInterface fun scheduleReminder(id: String, title: String, body: String, whenMillis: Long): Boolean = this@MainActivity.scheduleReminder(id, title, body, whenMillis)
         @JavascriptInterface fun cancelReminder(id: String) = this@MainActivity.cancelReminder(id)
