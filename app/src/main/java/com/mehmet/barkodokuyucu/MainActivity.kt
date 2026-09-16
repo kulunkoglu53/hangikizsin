@@ -86,6 +86,11 @@ class MainActivity : Activity(), RecognitionListener {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 js("window.__raphaelNativeReady&&window.__raphaelNativeReady();")
+                js("(function(){try{var i=document.getElementById('wakeInput');if(i){RAPHAELNative.setWakeWord(i.value);var b=document.getElementById('saveWake');if(b&&!b.dataset.nativeWakeBound){b.dataset.nativeWakeBound='1';b.addEventListener('click',function(){RAPHAELNative.setWakeWord(i.value);});}}}catch(e){}})();")
+                val pending = consumeBackgroundCommand()
+                if (pending.isNotBlank()) {
+                    js("setTimeout(function(){var i=document.getElementById('chatInput');var b=document.getElementById('sendBtn');if(i&&b){i.value=${q(pending)};b.click();}},650);")
+                }
             }
         }
         webView.addJavascriptInterface(NativeBridge(), "RAPHAELNative")
@@ -102,6 +107,10 @@ class MainActivity : Activity(), RecognitionListener {
         if (intent?.getBooleanExtra("from_wake_service", false) == true && Build.VERSION.SDK_INT >= 27) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
+        }
+        val pending = consumeBackgroundCommand()
+        if (pending.isNotBlank() && ::webView.isInitialized) {
+            js("setTimeout(function(){var i=document.getElementById('chatInput');var b=document.getElementById('sendBtn');if(i&&b){i.value=${q(pending)};b.click();}},400);")
         }
     }
 
