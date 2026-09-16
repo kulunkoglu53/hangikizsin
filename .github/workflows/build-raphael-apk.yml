@@ -50,7 +50,7 @@ jobs:
           APK="app/build/outputs/apk/debug/app-debug.apk"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | tee raphael-apk-badging.txt
           grep -q "package: name='com.raphael.assistant'" raphael-apk-badging.txt
-          grep -q "versionName='0.7.0'" raphael-apk-badging.txt
+          grep -q "versionName='0.8.0'" raphael-apk-badging.txt
           grep -q "application-label:'RAPHAEL'" raphael-apk-badging.txt
           grep -q "android.permission.RECORD_AUDIO" raphael-apk-badging.txt
           grep -q "android.permission.POST_NOTIFICATIONS" raphael-apk-badging.txt
@@ -58,16 +58,16 @@ jobs:
           grep -q "android.permission.FOREGROUND_SERVICE_MICROPHONE" raphael-apk-badging.txt
           grep -q "android.permission.WAKE_LOCK" raphael-apk-badging.txt
           mkdir -p apk-output-raphael
-          cp "$APK" apk-output-raphael/RAPHAEL-Mobile-v0.7.apk
-          sha256sum apk-output-raphael/RAPHAEL-Mobile-v0.7.apk > apk-output-raphael/RAPHAEL-Mobile-v0.7.sha256
+          cp "$APK" apk-output-raphael/RAPHAEL-Mobile-v0.8.apk
+          sha256sum apk-output-raphael/RAPHAEL-Mobile-v0.8.apk > apk-output-raphael/RAPHAEL-Mobile-v0.8.sha256
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: RAPHAEL-Mobile-v0.7
+          name: RAPHAEL-Mobile-v0.8
           path: |
-            apk-output-raphael/RAPHAEL-Mobile-v0.7.apk
-            apk-output-raphael/RAPHAEL-Mobile-v0.7.sha256
+            apk-output-raphael/RAPHAEL-Mobile-v0.8.apk
+            apk-output-raphael/RAPHAEL-Mobile-v0.8.sha256
             raphael-apk-badging.txt
           if-no-files-found: error
           retention-days: 30
