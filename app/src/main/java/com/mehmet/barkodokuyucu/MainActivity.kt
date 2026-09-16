@@ -55,6 +55,18 @@ class MainActivity : Activity(), RecognitionListener {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (intent?.getBooleanExtra("from_wake_service", false) == true) {
+            if (Build.VERSION.SDK_INT >= 27) {
+                setShowWhenLocked(true)
+                setTurnScreenOn(true)
+            } else {
+                @Suppress("DEPRECATION")
+                window.addFlags(
+                    android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                        android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                )
+            }
+        }
         window.statusBarColor = android.graphics.Color.rgb(6, 9, 14)
         window.navigationBarColor = android.graphics.Color.rgb(6, 9, 14)
 
@@ -80,7 +92,17 @@ class MainActivity : Activity(), RecognitionListener {
 
         initSpeech()
         initTts()
+        if (hasMic()) startWakeWordService()
         webView.loadUrl("file:///android_asset/index.html")
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent?.getBooleanExtra("from_wake_service", false) == true && Build.VERSION.SDK_INT >= 27) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        }
     }
 
     private fun initSpeech() {
@@ -121,6 +143,7 @@ class MainActivity : Activity(), RecognitionListener {
         if (!hasMic()) missing += Manifest.permission.RECORD_AUDIO
         if (Build.VERSION.SDK_INT >= 33 && !hasNotifications()) missing += Manifest.permission.POST_NOTIFICATIONS
         if (missing.isEmpty()) {
+            startWakeWordService()
             js("window.__raphaelNativePermissions&&window.__raphaelNativePermissions(true);")
         } else {
             requestPermissions(missing.toTypedArray(), REQ_PERMISSIONS)
@@ -130,8 +153,36 @@ class MainActivity : Activity(), RecognitionListener {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQ_PERMISSIONS) {
+            if (hasMic()) startWakeWordService()
             js("window.__raphaelNativePermissions&&window.__raphaelNativePermissions(${hasMic()});")
         }
+    }
+
+    private fun startWakeWordService() {
+        if (!hasMic()) return
+        try {
+            val i = Intent(this, WakeWordService::class.java)
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
+        } catch (_: Exception) {}
+    }
+
+    private fun setWakeWord(value: String) {
+        val word = value.trim().lowercase(Locale("tr", "TR")).ifBlank { "raphael" }
+        getSharedPreferences(WakeWordService.PREFS, MODE_PRIVATE)
+            .edit()
+            .putString(WakeWordService.KEY_WAKE, word)
+            .apply()
+        try {
+            val i = Intent(this, WakeWordService::class.java).apply { action = WakeWordService.ACTION_UPDATE_WAKE }
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
+        } catch (_: Exception) {}
+    }
+
+    private fun consumeBackgroundCommand(): String {
+        val p = getSharedPreferences(WakeWordService.PREFS, MODE_PRIVATE)
+        val command = p.getString(WakeWordService.KEY_PENDING_COMMAND, "").orEmpty()
+        if (command.isNotBlank()) p.edit().remove(WakeWordService.KEY_PENDING_COMMAND).apply()
+        return command
     }
 
     private fun startListening(language: String) = runOnUiThread {
@@ -413,6 +464,8 @@ class MainActivity : Activity(), RecognitionListener {
         @JavascriptInterface fun cancelReminder(id: String) = this@MainActivity.cancelReminder(id)
         @JavascriptInterface fun openChatGPTResearch(query: String): Boolean = this@MainActivity.openChatGPTResearch(query)
         @JavascriptInterface fun openApp(name: String): Boolean = this@MainActivity.openApp(name)
+        @JavascriptInterface fun setWakeWord(value: String) { this@MainActivity.setWakeWord(value) }
+        @JavascriptInterface fun consumeBackgroundCommand(): String = this@MainActivity.consumeBackgroundCommand()
         @JavascriptInterface fun now(): Long = System.currentTimeMillis()
     }
 
