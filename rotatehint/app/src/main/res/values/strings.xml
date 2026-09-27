@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Rotate Hint</string>
+    <string name="accessibility_description">Otomatik döndürme kapalıyken cihaz yön değişimini algılar ve isteğe bağlı döndürme düğmesi gösterir.</string>
+</resources>
