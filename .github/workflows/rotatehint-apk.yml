@@ -1,0 +1,57 @@
+name: Build RotateHint APK
+
+on:
+  push:
+    branches:
+      - rotatehint-apk-build
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 35
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build APK
+        working-directory: rotatehint
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Rename APK
+        run: cp rotatehint/app/build/outputs/apk/debug/app-debug.apk rotatehint/RotateHint.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RotateHint-APK
+          path: rotatehint/RotateHint.apk
+          if-no-files-found: error
+
+      - name: Publish APK release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: rotatehint-v1.0
+          name: RotateHint v1.0
+          body: "Honor/Android tablet için manuel ekran döndürme öneri uygulaması."
+          files: rotatehint/RotateHint.apk
+          make_latest: false
