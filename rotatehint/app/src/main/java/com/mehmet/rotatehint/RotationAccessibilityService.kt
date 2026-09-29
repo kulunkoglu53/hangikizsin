@@ -37,6 +37,10 @@ class RotationAccessibilityService : AccessibilityService() {
                     hideRotateButton()
                     return
                 }
+                if (!isRunningEnabled()) {
+                    hideRotateButton()
+                    return
+                }
 
                 val autoRotate = Settings.System.getInt(
                     contentResolver,
@@ -49,7 +53,7 @@ class RotationAccessibilityService : AccessibilityService() {
                     return
                 }
 
-                val candidate = nearestRotation(orientation)
+                val candidate = calculateStableRotationCandidate(orientation) ?: return
                 val current = currentDisplayRotation()
 
                 if (candidate == current) {
@@ -66,7 +70,7 @@ class RotationAccessibilityService : AccessibilityService() {
                     return
                 }
 
-                if (now - candidateSince >= 450L && pendingRotation != candidate) {
+                if (now - candidateSince >= 400L && pendingRotation != candidate) {
                     pendingRotation = candidate
                     showRotateButton(candidate)
                 }
@@ -87,11 +91,14 @@ class RotationAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
-    private fun nearestRotation(orientation: Int): Int = when (orientation) {
-        in 315..359, in 0..44 -> Surface.ROTATION_0
-        in 45..134 -> Surface.ROTATION_90
-        in 135..224 -> Surface.ROTATION_180
-        else -> Surface.ROTATION_270
+    private fun calculateStableRotationCandidate(orientation: Int): Int? {
+        return when {
+            orientation >= 330 || orientation <= 30 -> Surface.ROTATION_0
+            orientation in 60..120 -> Surface.ROTATION_270
+            orientation in 150..210 -> Surface.ROTATION_180
+            orientation in 240..300 -> Surface.ROTATION_90
+            else -> null
+        }
     }
 
     @Suppress("DEPRECATION")
@@ -102,11 +109,11 @@ class RotationAccessibilityService : AccessibilityService() {
 
         if (rotateButton == null) {
             rotateButton = ImageButton(this).apply {
-                setImageResource(R.drawable.ic_rotate)
+                setImageResource(R.drawable.ic_overlay_rotate)
                 setBackgroundResource(R.drawable.rotate_button_bg)
                 contentDescription = "Ekranı döndür"
                 elevation = dp(8).toFloat()
-                setPadding(dp(12), dp(12), dp(12), dp(12))
+                setPadding(dp(9), dp(9), dp(9), dp(9))
                 setOnClickListener {
                     val target = pendingRotation ?: return@setOnClickListener
                     rotateTo(target)
@@ -114,16 +121,16 @@ class RotationAccessibilityService : AccessibilityService() {
             }
 
             val params = WindowManager.LayoutParams(
-                dp(52),
-                dp(52),
+                dp(49),
+                dp(49),
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.BOTTOM or Gravity.START
-                x = dp(18)
-                y = dp(28)
+                x = dp(14)
+                y = dp(22)
             }
 
             try {
@@ -136,7 +143,7 @@ class RotationAccessibilityService : AccessibilityService() {
 
         rotateButton?.visibility = View.VISIBLE
         rotateButton?.alpha = 0f
-        rotateButton?.animate()?.alpha(1f)?.setDuration(130)?.start()
+        rotateButton?.animate()?.alpha(1f)?.setDuration(120)?.start()
         pendingRotation = targetRotation
         handler.postDelayed(hideRunnable, 4500L)
     }
@@ -154,19 +161,16 @@ class RotationAccessibilityService : AccessibilityService() {
     private fun rotateTo(rotation: Int) {
         if (!Settings.System.canWrite(this)) return
 
-        Settings.System.putInt(
-            contentResolver,
-            Settings.System.ACCELEROMETER_ROTATION,
-            0
-        )
-        Settings.System.putInt(
-            contentResolver,
-            Settings.System.USER_ROTATION,
-            rotation
-        )
+        Settings.System.putInt(contentResolver, Settings.System.ACCELEROMETER_ROTATION, 0)
+        Settings.System.putInt(contentResolver, Settings.System.USER_ROTATION, rotation)
 
         pendingRotation = null
         hideRotateButton()
+    }
+
+    private fun isRunningEnabled(): Boolean {
+        val prefs = getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(MainActivity.PREF_RUNNING, false)
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
