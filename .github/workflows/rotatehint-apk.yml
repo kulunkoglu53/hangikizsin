@@ -41,20 +41,20 @@ jobs:
         run: gradle --no-daemon :app:assembleDebug
 
       - name: Rename APK
-        run: cp rotatehint/app/build/outputs/apk/debug/app-debug.apk rotatehint/RotateHint.apk
+        run: cp rotatehint/app/build/outputs/apk/debug/app-debug.apk rotatehint/RotateHint-v2.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RotateHint-APK
-          path: rotatehint/RotateHint.apk
+          name: RotateHint-v2-APK
+          path: rotatehint/RotateHint-v2.apk
           if-no-files-found: error
 
       - name: Publish APK release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: rotatehint-v1.0
-          name: RotateHint v1.0
-          body: "Honor/Android tablet için manuel ekran döndürme öneri uygulaması."
-          files: rotatehint/RotateHint.apk
-          make_latest: false
+          tag_name: rotatehint-v2.0
+          name: RotateHint v2.0
+          body: "Daha doğru 4 yön algılama, yenilenmiş döndürme tuşu, yeni uygulama simgesi ve sadeleştirilmiş izin/başlatma akışı."
+          files: rotatehint/RotateHint-v2.apk
+          make_latest: true
